@@ -1,17 +1,21 @@
 """
 backend/preprocessing/chunker.py
-
+ 
 Splits cleaned text into overlapping chunks, preserving paragraph
 boundaries where possible (better for Arabic educational text).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-
+ 
 from config.settings import retrieval_cfg
 from backend.scraper.live_scraper import RawDocument
-from backend.preprocessing.cleaner import clean_text, is_arabic_heavy
-
-
+from backend.preprocessing.cleaner import (
+    clean_text,
+    is_arabic_heavy,
+    extract_arabic_sections,   # ✅ استيراد الدالة الجديدة
+)
+ 
+ 
 @dataclass
 class Chunk:
     """A single processable chunk ready for embedding."""
@@ -21,14 +25,14 @@ class Chunk:
     source_url: str
     title: str
     metadata: dict = field(default_factory=dict)
-
-
+ 
+ 
 def _split_by_paragraphs(text: str, max_chars: int) -> list[str]:
     """Split on double-newlines first, then hard-split overlong paragraphs."""
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     chunks: list[str] = []
     current = ""
-
+ 
     for para in paragraphs:
         if len(current) + len(para) + 2 <= max_chars:
             current = (current + "\n\n" + para).strip() if current else para
@@ -41,38 +45,58 @@ def _split_by_paragraphs(text: str, max_chars: int) -> list[str]:
                     chunks.append(para[i: i + max_chars])
             else:
                 current = para
-
+ 
     if current:
         chunks.append(current)
     return chunks
-
-
+ 
+ 
 def chunk_document(doc: RawDocument) -> list[Chunk]:
     """
     Clean and chunk a RawDocument into Chunk objects.
-
+ 
     Uses paragraph-aware splitting with character-level overlap
     (re-appends the tail of the previous chunk to the next one).
     """
     size = retrieval_cfg.chunk_size
     overlap = retrieval_cfg.chunk_overlap
-
+ 
     cleaned = clean_text(doc.content)
-
-    # Skip docs with very little Arabic content (e.g. navigation pages)
+ 
+    # ✅ لو المحتوى مش عربي كفاية، جرّب استخراج الأجزاء العربية بس
     if not is_arabic_heavy(cleaned, threshold=0.15):
-        return []
-
+        arabic_only = extract_arabic_sections(cleaned)
+ 
+        # ✅ لو استخرجنا محتوى عربي كافي، استخدمه
+        if len(arabic_only.strip()) >= 100:
+            cleaned = arabic_only
+        else:
+            # ✅ سجّل سبب الـ skip عشان نعرف إيه اللي بيحصل
+            arabic_ratio = sum(1 for c in cleaned if "\u0600" <= c <= "\u06FF") / max(len(cleaned), 1)
+            from loguru import logger
+            logger.debug(
+                f"Skipped doc (low Arabic content): {doc.source_url} "
+                f"| arabic_ratio={arabic_ratio:.2%} "
+                f"| content_len={len(cleaned)}"
+            )
+            return []
+ 
     raw_chunks = _split_by_paragraphs(cleaned, max_chars=size)
-
+ 
+    # ✅ تأكد إن كل chunk فيه محتوى حقيقي
+    raw_chunks = [c for c in raw_chunks if len(c.strip()) >= 30]
+ 
+    if not raw_chunks:
+        return []
+ 
     chunks: list[Chunk] = []
     prev_tail = ""
-
+ 
     for idx, text in enumerate(raw_chunks):
         # Prepend overlap from previous chunk
         full_text = (prev_tail + " " + text).strip() if prev_tail else text
         prev_tail = text[-overlap:] if len(text) > overlap else text
-
+ 
         chunk = Chunk(
             text=full_text,
             chunk_id=f"{doc.doc_id}-{idx:04d}",
@@ -87,14 +111,22 @@ def chunk_document(doc: RawDocument) -> list[Chunk]:
             },
         )
         chunks.append(chunk)
-
+ 
     return chunks
-
-
+ 
+ 
 def process_documents(docs: list[RawDocument]) -> list[Chunk]:
     """Process a list of RawDocuments into a flat list of Chunks."""
+    from loguru import logger
     all_chunks: list[Chunk] = []
     for doc in docs:
         chunks = chunk_document(doc)
+        # ✅ لوج تفصيلي لكل document
+        logger.debug(
+            f"Doc processed: {doc.source_url} "
+            f"| content_len={len(doc.content)} "
+            f"| chunks={len(chunks)}"
+        )
         all_chunks.extend(chunks)
+    logger.info(f"Total chunks: {len(all_chunks)} from {len(docs)} documents")
     return all_chunks
