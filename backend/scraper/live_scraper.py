@@ -1,16 +1,17 @@
 """
 backend/scraper/live_scraper.py
  
-Live web scraper for Egyptian Ministry of Education sources.
-Returns raw Document objects ready for the preprocessing pipeline.
+Live web scraper — مصادر عربية مفتوحة تشتغل من Streamlit Cloud.
+Primary:  Wikipedia Arabic + Archive.org
+Fallback: DuckDuckGo Search (بدون API key)
 """
 from __future__ import annotations
-import re          # ✅ تم نقله للأعلى - كان داخل الدالة وبيسبب الخطأ
+import re
 import time
 import hashlib
 from dataclasses import dataclass, field
 from typing import Generator
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
  
 import httpx
 import fitz  # PyMuPDF
@@ -28,7 +29,7 @@ class RawDocument:
     content: str
     source_url: str
     title: str = ""
-    doc_type: str = "html"   # "html" | "pdf"
+    doc_type: str = "html"
     metadata: dict = field(default_factory=dict)
  
     @property
@@ -36,16 +37,11 @@ class RawDocument:
         return hashlib.md5(self.source_url.encode()).hexdigest()[:12]
  
  
-# ── HTTP client (shared, with polite headers) ──────────────────────────────────
+# ── HTTP client ────────────────────────────────────────────────────────────────
 def _make_client() -> httpx.Client:
     return httpx.Client(
         headers={
-            # ✅ Headers محسّنة تحاكي المتصفح الحقيقي لتجنب الحجب
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": scraper_cfg.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
@@ -57,9 +53,8 @@ def _make_client() -> httpx.Client:
     )
  
  
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=4))
 def _fetch_url(client: httpx.Client, url: str) -> httpx.Response:
-    """Fetch a URL with retry logic."""
     resp = client.get(url)
     resp.raise_for_status()
     return resp
@@ -67,7 +62,6 @@ def _fetch_url(client: httpx.Client, url: str) -> httpx.Response:
  
 # ── PDF extraction ─────────────────────────────────────────────────────────────
 def extract_pdf_text(pdf_bytes: bytes, source_url: str) -> RawDocument:
-    """Extract text from a PDF using PyMuPDF."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     pages_text = []
     for page_num, page in enumerate(doc):
@@ -88,25 +82,22 @@ def extract_pdf_text(pdf_bytes: bytes, source_url: str) -> RawDocument:
  
 # ── HTML extraction ────────────────────────────────────────────────────────────
 def extract_html_text(html: str, source_url: str) -> RawDocument:
-    """Extract meaningful text from an HTML page."""
     soup = BeautifulSoup(html, "lxml")
  
-    # Remove noise
-    for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+    for tag in soup(["script", "style", "nav", "footer", "header", "aside",
+                     "table.navbox", ".mw-editsection", ".reference"]):
         tag.decompose()
  
     title = soup.title.string.strip() if soup.title else ""
  
-    # ✅ الآن re متعرف عليه لأنه في أعلى الملف
     main = (
-        soup.find("main")
+        soup.find("div", {"id": "mw-content-text"})   # ✅ Wikipedia
+        or soup.find("main")
         or soup.find("article")
         or soup.find(id=re.compile(r"content|main|body", re.I))
         or soup.body
     )
     text = main.get_text(separator="\n", strip=True) if main else soup.get_text()
- 
-    # Collapse whitespace
     text = re.sub(r"\n{3,}", "\n\n", text)
  
     return RawDocument(
@@ -117,76 +108,173 @@ def extract_html_text(html: str, source_url: str) -> RawDocument:
     )
  
  
-# ── DuckDuckGo fallback search ─────────────────────────────────────────────────
-def _duckduckgo_search(query: str, max_results: int = 5) -> list[str]:
+# ── Wikipedia Arabic API ───────────────────────────────────────────────────────
+def _search_wikipedia_arabic(query: str, max_results: int = 5) -> list[RawDocument]:
     """
-    ✅ Fallback: DuckDuckGo search - يشتغل من Streamlit Cloud بدون API key
-    بيرجع list of URLs من نتائج البحث
+    ✅ Wikipedia Arabic API — مفتوحة دايماً من أي سيرفر
+    بتجيب نص كامل المقالات مباشرة بدون scraping
+    """
+    docs = []
+    try:
+        # خطوة 1: ابحث عن المقالات
+        search_url = (
+            "https://ar.wikipedia.org/w/api.php"
+            f"?action=search&list=search&srsearch={quote(query)}"
+            f"&srlimit={max_results}&format=json&utf8=1"
+        )
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(search_url)
+            resp.raise_for_status()
+            results = resp.json().get("query", {}).get("search", [])
+ 
+        if not results:
+            logger.info(f"Wikipedia: لا نتائج لـ '{query}'")
+            return []
+ 
+        # خطوة 2: جيب محتوى كل مقالة
+        for item in results[:max_results]:
+            page_title = item["title"]
+            content_url = (
+                "https://ar.wikipedia.org/w/api.php"
+                f"?action=query&titles={quote(page_title)}"
+                "&prop=extracts&explaintext=true&exsectionformat=plain"
+                "&format=json&utf8=1"
+            )
+            try:
+                with httpx.Client(timeout=15) as client:
+                    resp = client.get(content_url)
+                    resp.raise_for_status()
+                    pages = resp.json().get("query", {}).get("pages", {})
+                    for page_data in pages.values():
+                        extract = page_data.get("extract", "")
+                        if extract and len(extract) > 200:
+                            page_url = f"https://ar.wikipedia.org/wiki/{quote(page_title)}"
+                            docs.append(RawDocument(
+                                content=extract,
+                                source_url=page_url,
+                                title=page_title,
+                                doc_type="html",
+                                metadata={"source": "ar.wikipedia.org", "via": "wikipedia_api"},
+                            ))
+                            logger.info(f"Wikipedia ✅ '{page_title}' — {len(extract)} chars")
+            except Exception as exc:
+                logger.warning(f"Wikipedia content fetch failed for '{page_title}': {exc}")
+ 
+    except Exception as exc:
+        logger.warning(f"Wikipedia search failed: {exc}")
+ 
+    return docs
+ 
+ 
+# ── DuckDuckGo fallback ────────────────────────────────────────────────────────
+def _search_duckduckgo(query: str, max_results: int = 6) -> list[str]:
+    """
+    ✅ DuckDuckGo — بديل Google بدون API key، يشتغل من Streamlit Cloud
+    بيرجع URLs فقط، الـ scraping بيحصل بعدين
     """
     try:
         from duckduckgo_search import DDGS
         urls = []
         with DDGS() as ddgs:
-            results = ddgs.text(
-                f"site:moe.gov.eg {query}",
-                max_results=max_results,
-                region="eg-ar",
-            )
-            for r in results:
-                if r.get("href"):
-                    urls.append(r["href"])
-        logger.info(f"DuckDuckGo found {len(urls)} URLs for: {query}")
-        return urls
+            # بحث عربي أولاً
+            for region in scraper_cfg.ddg_regions:
+                results = list(ddgs.text(
+                    f"{query} التعليم المصري",
+                    region=region,
+                    max_results=max_results,
+                ))
+                for r in results:
+                    if r.get("href") and r["href"] not in urls:
+                        # استبعد المصادر اللي بتبلوك
+                        blocked = ["moe.gov.eg", "google.com", "facebook.com", "twitter.com"]
+                        if not any(b in r["href"] for b in blocked):
+                            urls.append(r["href"])
+                if urls:
+                    break   # لقينا نتائج، مش محتاجين نكمل
+ 
+        logger.info(f"DuckDuckGo ✅ وجد {len(urls)} URLs لـ '{query}'")
+        return urls[:max_results]
+ 
     except ImportError:
-        logger.warning("duckduckgo_search غير مثبت — أضفه لـ requirements.txt")
+        logger.warning("duckduckgo-search غير مثبت — أضفه لـ requirements.txt")
         return []
     except Exception as exc:
-        logger.warning(f"DuckDuckGo search failed: {exc}")
+        logger.warning(f"DuckDuckGo failed: {exc}")
         return []
  
  
 # ── Source selector ────────────────────────────────────────────────────────────
-def select_sources(meta: QueryMetadata) -> list[str]:
-    """Choose which MOE source URLs to scrape based on query metadata."""
-    domain = meta.domain
-    sources = scraper_cfg.sources.get(domain, []) + scraper_cfg.sources.get("curriculum", [])
-    return list(dict.fromkeys(sources))   # deduplicate, preserve order
+def _get_subject_sources(meta: QueryMetadata) -> list[str]:
+    """اختار المصادر المناسبة بناءً على المادة والدومين."""
+    sources = []
  
+    # مصادر حسب المادة
+    subject_map = {
+        "رياضيات": "math",
+        "علوم": "science",
+        "فيزياء": "science",
+        "كيمياء": "science",
+        "أحياء": "science",
+        "عربي": "arabic",
+        "لغة عربية": "arabic",
+        "تاريخ": "history",
+        "جغرافيا": "history",
+    }
  
-# ── Google-style search simulation (public search on MOE) ─────────────────────
-def build_search_urls(meta: QueryMetadata) -> list[str]:
-    """
-    Build targeted search URLs.
-    Uses MOE site-search where available; falls back to Google with site: operator.
-    """
-    q = meta.search_query
-    return [
-        f"https://www.moe.gov.eg/ar/search?q={q.replace(' ', '+')}",
-        f"https://studentbooks.moe.gov.eg/search?q={q.replace(' ', '+')}",
-        # public Google CSE fallback (works without API key)
-        f"https://www.google.com/search?q=site:moe.gov.eg+{q.replace(' ', '+')}&num=5",
-    ]
+    if meta.subject:
+        for key, category in subject_map.items():
+            if key in (meta.subject or ""):
+                sources += scraper_cfg.sources.get(category, [])
+ 
+    # مصادر حسب الدومين
+    domain_sources = scraper_cfg.sources.get(meta.domain, [])
+    sources += domain_sources
+ 
+    # دايماً أضف curriculum كـ fallback
+    sources += scraper_cfg.sources.get("curriculum", [])
+ 
+    return list(dict.fromkeys(sources))  # deduplicate
  
  
 # ── Main scraper entry point ───────────────────────────────────────────────────
 def scrape_for_query(meta: QueryMetadata) -> list[RawDocument]:
     """
-    Scrape live documents relevant to the given query.
-    Returns a list of RawDocument objects.
+    Pipeline:
+    1. Wikipedia Arabic API (موثوقة + عربية + مفتوحة) ✅
+    2. Static sources (Wikipedia pages مخصصة للمادة) ✅
+    3. DuckDuckGo fallback (لو المصادر الثابتة مش كافية) ✅
     """
     documents: list[RawDocument] = []
     visited: set[str] = set()
  
-    urls_to_try = build_search_urls(meta) + select_sources(meta)
+    # ══════════════════════════════════════════════════════
+    # الخطوة 1: Wikipedia Arabic API (الأسرع والأأمن)
+    # ══════════════════════════════════════════════════════
+    logger.info(f"🔍 Wikipedia API: '{meta.search_query}'")
+    wiki_docs = _search_wikipedia_arabic(meta.search_query, max_results=4)
+    for doc in wiki_docs:
+        doc.metadata.update({
+            "grade": meta.grade,
+            "subject": meta.subject,
+            "term": meta.term,
+            "domain": meta.domain,
+        })
+        documents.append(doc)
+        visited.add(doc.source_url)
+ 
+    # ══════════════════════════════════════════════════════
+    # الخطوة 2: Static sources (Wikipedia pages مخصصة)
+    # ══════════════════════════════════════════════════════
+    static_urls = _get_subject_sources(meta)
  
     with _make_client() as client:
-        for url in urls_to_try[: scraper_cfg.max_pages * 2]:
+        for url in static_urls[: scraper_cfg.max_pages]:
             if url in visited:
                 continue
             visited.add(url)
  
             try:
-                logger.info(f"Scraping: {url}")
+                logger.info(f"Scraping static: {url}")
                 resp = _fetch_url(client, url)
                 content_type = resp.headers.get("content-type", "")
  
@@ -195,7 +283,6 @@ def scrape_for_query(meta: QueryMetadata) -> list[RawDocument]:
                 else:
                     doc = extract_html_text(resp.text, url)
  
-                # Filter: only keep docs with Arabic content related to query
                 if len(doc.content.strip()) > 200:
                     doc.metadata.update({
                         "grade": meta.grade,
@@ -206,26 +293,28 @@ def scrape_for_query(meta: QueryMetadata) -> list[RawDocument]:
                     })
                     documents.append(doc)
  
-                    # Follow PDF links found in HTML
+                    # تتبع روابط PDF
                     if doc.doc_type == "html" and len(documents) < scraper_cfg.max_pages:
                         for pdf_url in _find_pdf_links(resp.text, url):
                             if pdf_url not in visited:
-                                urls_to_try.append(pdf_url)
+                                static_urls.append(pdf_url)
  
                 time.sleep(scraper_cfg.delay)
  
             except Exception as exc:
-                logger.warning(f"Failed to scrape {url}: {exc}")
+                logger.warning(f"Failed static scrape {url}: {exc}")
  
-    # ✅ Fallback: لو مفيش نتائج من المصادر المباشرة، جرّب DuckDuckGo
-    if not documents:
-        logger.info("No documents from direct scraping — trying DuckDuckGo fallback...")
-        fallback_urls = _duckduckgo_search(meta.search_query)
+    # ══════════════════════════════════════════════════════
+    # الخطوة 3: DuckDuckGo fallback (لو محتاجين أكتر)
+    # ══════════════════════════════════════════════════════
+    if len(documents) < 2:
+        logger.info("📡 DuckDuckGo fallback — المصادر الثابتة غير كافية...")
+        ddg_urls = _search_duckduckgo(meta.search_query)
  
         with _make_client() as client:
-            for url in fallback_urls:
-                if url in visited:
-                    continue
+            for url in ddg_urls:
+                if url in visited or len(documents) >= scraper_cfg.max_pages:
+                    break
                 visited.add(url)
  
                 try:
@@ -245,21 +334,20 @@ def scrape_for_query(meta: QueryMetadata) -> list[RawDocument]:
                             "term": meta.term,
                             "domain": meta.domain,
                             "source": urlparse(url).netloc,
-                            "via": "duckduckgo_fallback",   # علامة إن الداتا جت من الـ fallback
+                            "via": "duckduckgo",
                         })
                         documents.append(doc)
  
                     time.sleep(scraper_cfg.delay)
  
                 except Exception as exc:
-                    logger.warning(f"Fallback scrape failed for {url}: {exc}")
+                    logger.warning(f"Fallback scrape failed {url}: {exc}")
  
-    logger.info(f"Scraped {len(documents)} documents")
+    logger.info(f"✅ Scraped {len(documents)} documents total")
     return documents
  
  
 def _find_pdf_links(html: str, base_url: str) -> Generator[str, None, None]:
-    """Find PDF links in an HTML page."""
     soup = BeautifulSoup(html, "lxml")
     for a in soup.find_all("a", href=True):
         href = a["href"]
