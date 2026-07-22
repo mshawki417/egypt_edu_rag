@@ -1,109 +1,413 @@
 """
-config/settings.py
-Central configuration — reads Streamlit Cloud secrets first, then .env fallback.
+Central Production Configuration
+Egypt Education Real-Time RAG
 """
+
 from __future__ import annotations
+
+
 import os
+
 from pathlib import Path
+
 from dotenv import load_dotenv
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
+
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
 
 
-def _get_secret(key: str, default: str = "") -> str:
-    """Read from Streamlit secrets first, then env vars, then default."""
+load_dotenv(
+    BASE_DIR / ".env"
+)
+
+
+
+
+# ==========================
+# Secrets
+# ==========================
+
+
+def get_secret(
+    key:str,
+    default=""
+):
+
+
     try:
+
         import streamlit as st
-        val = st.secrets.get(key, None)
-        if val:
-            return str(val)
+
+
+        value=st.secrets.get(
+            key,
+            None
+        )
+
+
+        if value:
+
+            return str(value)
+
+
     except Exception:
+
         pass
-    return os.getenv(key, default)
+
+
+
+    return os.getenv(
+        key,
+        default
+    )
+
+
+
+
+
+# ==========================
+# Scraper
+# ==========================
 
 
 class ScraperConfig(BaseModel):
-    timeout: int   = 20
-    max_pages: int = 5
-    delay: float   = 0.5
-    user_agent: str = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+
+
+    timeout:int = 15
+
+
+    max_pages:int = 8
+
+
+    concurrent_requests:int = 10
+
+
+    cache_ttl:int = 900
+
+
+    delay:float = 0.1
+
+
+
+    user_agent:str=(
+
+        "Mozilla/5.0 "
+
+        "Education-RAG-Bot"
+
     )
-    sources: dict[str, list[str]] = {
-        "curriculum": [
+
+
+
+    ddg_max_results:int = 5
+
+
+
+    sources:dict[str,list[str]]={
+
+
+        "curriculum":[
+
             "https://ar.wikipedia.org/wiki/التعليم_في_مصر",
-            "https://ar.wikipedia.org/wiki/وزارة_التربية_والتعليم_(مصر)",
+
+            "https://ar.wikipedia.org/wiki/وزارة_التربية_والتعليم_(مصر)"
+
         ],
-        "math": [
+
+
+        "math":[
+
             "https://ar.wikipedia.org/wiki/رياضيات",
-            "https://ar.wikipedia.org/wiki/الجبر",
+
+            "https://ar.wikipedia.org/wiki/الجبر"
+
         ],
-        "science": [
+
+
+        "science":[
+
             "https://ar.wikipedia.org/wiki/علوم",
+
             "https://ar.wikipedia.org/wiki/فيزياء",
+
             "https://ar.wikipedia.org/wiki/كيمياء",
-            "https://ar.wikipedia.org/wiki/أحياء",
+
         ],
-        "arabic": [
-            "https://ar.wikipedia.org/wiki/اللغة_العربية",
-            "https://ar.wikipedia.org/wiki/النحو_العربي",
+
+
+        "arabic":[
+
+            "https://ar.wikipedia.org/wiki/اللغة_العربية"
+
         ],
-        "history": [
-            "https://ar.wikipedia.org/wiki/تاريخ_مصر",
-            "https://ar.wikipedia.org/wiki/تاريخ_مصر_الحديث",
-        ],
-        "exams": [
-            "https://ar.wikipedia.org/wiki/الثانوية_العامة_في_مصر",
-        ],
-        "news": [
-            "https://ar.wikipedia.org/wiki/التعليم_في_مصر",
-        ],
-        "schools": [
-            "https://ar.wikipedia.org/wiki/التعليم_الابتدائي_في_مصر",
-            "https://ar.wikipedia.org/wiki/التعليم_الثانوي_في_مصر",
-        ],
+
+
+        "history":[
+
+            "https://ar.wikipedia.org/wiki/تاريخ_مصر"
+
+        ]
+
     }
-    ddg_max_results: int = 5
+
+
+
+
+
+# ==========================
+# Retrieval
+# ==========================
 
 
 class RetrievalConfig(BaseModel):
-    top_k_retrieve: int  = 8
-    top_k_rerank: int    = 4
-    chunk_size: int      = 800
-    chunk_overlap: int   = 80
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-    bm25_weight: float   = 0.4
+
+
+    # Retrieval
+
+    top_k_retrieve:int = 12
+
+
+    top_k_rerank:int = 4
+
+
+
+    # Chunking
+
+    chunk_size:int = 750
+
+
+    chunk_overlap:int = 120
+
+
+
+    # Embedding
+
+    embedding_model:str=(
+
+        "sentence-transformers/"
+        "paraphrase-multilingual-mpnet-base-v2"
+
+    )
+
+
+    embedding_batch_size:int = 64
+
+
+
+    # Hybrid
+
+    bm25_weight:float = 0.35
+
+
+    dense_weight:float = 0.65
+
+
+
+    # Vector Store
+
+    vector_dir:Path = (
+
+        BASE_DIR /
+        "data" /
+        "vector_store"
+
+    )
+
+
+    faiss_file:str="index.faiss"
+
+
+    metadata_file:str="metadata.pkl"
+
+
+
+
+
+# ==========================
+# Reranker
+# ==========================
+
+
+class RerankerConfig(BaseModel):
+
+
+    enabled:bool=True
+
+
+    model:str=(
+
+        "BAAI/"
+        "bge-reranker-v2-m3"
+
+    )
+
+
+    top_k:int=4
+
+
+
+
+
+# ==========================
+# LLM
+# ==========================
 
 
 class LLMConfig(BaseModel):
-    openrouter_api_key: str = ""
-    model: str = "mistralai/mistral-7b-instruct:free"
-    max_tokens: int    = 1024
-    temperature: float = 0.1
 
-    def __init__(self, **data):
-        super().__init__(**data)
-        # Read secrets at runtime, not at import time
-        self.openrouter_api_key = _get_secret("OPENROUTER_API_KEY", "")
-        self.model = _get_secret("LLM_MODEL", "mistralai/mistral-7b-instruct:free")
+
+    openrouter_api_key:str=""
+
+
+    model:str=(
+
+        "mistralai/"
+        "mistral-7b-instruct:free"
+
+    )
+
+
+    max_tokens:int=1200
+
+
+    temperature:float=0.15
+
+
+    timeout:int=90
+
+
+
+    streaming:bool=True
+
+
+
+    def __init__(self,**data):
+
+
+        super().__init__(
+            **data
+        )
+
+
+        self.openrouter_api_key=get_secret(
+
+            "OPENROUTER_API_KEY",
+
+            ""
+
+        )
+
+
+        self.model=get_secret(
+
+            "LLM_MODEL",
+
+            self.model
+
+        )
+
+
+
+
+
+# ==========================
+# Cache
+# ==========================
+
+
+class CacheConfig(BaseModel):
+
+
+    enabled:bool=True
+
+
+    query_cache_size:int=500
+
+
+    document_cache_size:int=1000
+
+
+    ttl_seconds:int=900
+
+
+
+
+
+# ==========================
+# Application
+# ==========================
 
 
 class AppConfig(BaseModel):
-    title: str     = "نظام الذكاء الاصطناعي للتعليم المصري"
-    log_level: str = "INFO"
-    data_dir: Path       = BASE_DIR / "data"
-    raw_dir: Path        = BASE_DIR / "data" / "raw"
-    processed_dir: Path  = BASE_DIR / "data" / "processed"
 
 
-scraper_cfg   = ScraperConfig()
-retrieval_cfg = RetrievalConfig()
-llm_cfg       = LLMConfig()
-app_cfg       = AppConfig()
+    title:str=(
 
-app_cfg.raw_dir.mkdir(parents=True, exist_ok=True)
-app_cfg.processed_dir.mkdir(parents=True, exist_ok=True)
+        "نظام الذكاء الاصطناعي "
+        "للتعليم المصري"
+
+    )
+
+
+    environment:str="production"
+
+
+    log_level:str="INFO"
+
+
+
+    data_dir:Path=BASE_DIR/"data"
+
+
+    raw_dir:Path=BASE_DIR/"data"/"raw"
+
+
+    processed_dir:Path=BASE_DIR/"data"/"processed"
+
+
+
+
+
+# ==========================
+# Instances
+# ==========================
+
+
+scraper_cfg=ScraperConfig()
+
+
+retrieval_cfg=RetrievalConfig()
+
+
+reranker_cfg=RerankerConfig()
+
+
+cache_cfg=CacheConfig()
+
+
+llm_cfg=LLMConfig()
+
+
+app_cfg=AppConfig()
+
+
+
+# create folders
+
+for path in [
+
+    app_cfg.raw_dir,
+
+    app_cfg.processed_dir,
+
+    retrieval_cfg.vector_dir
+
+]:
+
+    path.mkdir(
+        parents=True,
+        exist_ok=True
+    )
