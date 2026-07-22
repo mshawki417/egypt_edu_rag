@@ -1,0 +1,134 @@
+/* ======================
+   Global
+====================== */
+
+body {
+
+    direction: rtl;
+}
+
+
+.main-header {
+
+    text-align: center;
+    padding: 25px;
+
+    border-radius: 16px;
+
+    background:
+    linear-gradient(
+        135deg,
+        #f8fafc,
+        #eef2ff
+    );
+
+    margin-bottom: 25px;
+
+}
+
+
+.main-header h1 {
+
+    font-size: 34px;
+    font-weight: 700;
+
+    color:#111827;
+
+}
+
+
+.main-header p {
+
+    font-size:16px;
+
+    color:#4b5563;
+
+}
+
+
+
+/* ======================
+ Sidebar
+====================== */
+
+
+.sidebar-title {
+
+    font-size:24px;
+
+    font-weight:700;
+
+    color:#111827;
+
+    margin-bottom:20px;
+
+}
+
+
+
+/* ======================
+ Chat
+====================== */
+
+
+.stChatMessage {
+
+    border-radius:16px;
+
+}
+
+
+
+div[data-testid="stChatMessage"] {
+
+    padding:15px;
+
+}
+
+
+
+/* ======================
+ Buttons
+====================== */
+
+
+.stButton button {
+
+
+    border-radius:10px;
+
+    height:42px;
+
+    font-weight:600;
+
+}
+
+
+
+/* ======================
+ Cards
+====================== */
+
+
+div[data-testid="stExpander"] {
+
+    border-radius:12px;
+
+}
+
+
+
+/* ======================
+ Mobile
+====================== */
+
+
+@media(max-width:768px){
+
+    .main-header h1{
+
+        font-size:25px;
+
+    }
+
+}
