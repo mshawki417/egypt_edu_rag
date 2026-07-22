@@ -1,194 +1,297 @@
 """
 Egypt Education RAG
-Professional Streamlit Frontend
+Real-Time Streamlit Frontend
 
-Author: Mustafa Shawki
+Author:
+Mustafa Shawki
 """
+
 
 from __future__ import annotations
 
-import streamlit as st
-from pathlib import Path
+
 import sys
 
-# Add project root
-ROOT_DIR = Path(__file__).resolve().parent
-sys.path.append(str(ROOT_DIR))
-
-from backend.rag_pipeline import RAGPipeline
+from pathlib import Path
 
 
-# =========================
-# Page Configuration
-# =========================
+import streamlit as st
 
-st.set_page_config(
-    page_title="Egypt Education AI Assistant",
-    page_icon=None,
-    layout="wide",
-    initial_sidebar_state="expanded"
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+
+sys.path.insert(
+    0,
+    str(ROOT_DIR)
 )
 
 
-# =========================
-# Load CSS
-# =========================
+
+from backend.rag.orchestrator import run_rag_pipeline
+
+
+
+
+
+# ==========================
+# Config
+# ==========================
+
+
+st.set_page_config(
+
+    page_title="Egypt Education AI",
+
+    layout="wide",
+
+    initial_sidebar_state="expanded"
+
+)
+
+
+
+
+
+
+# ==========================
+# CSS
+# ==========================
+
 
 def load_css():
 
-    css_path = ROOT_DIR / "assets" / "style.css"
 
-    if css_path.exists():
-        with open(css_path, "r", encoding="utf-8") as f:
-            st.markdown(
-                f"<style>{f.read()}</style>",
-                unsafe_allow_html=True
-            )
+    css_file = (
+
+        ROOT_DIR /
+        "frontend" /
+        "assets" /
+        "style.css"
+
+    )
+
+
+    if css_file.exists():
+
+
+        st.markdown(
+
+            f"""
+
+            <style>
+
+            {css_file.read_text(
+                encoding="utf-8"
+            )}
+
+            </style>
+
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
 
 
 load_css()
 
 
-# =========================
-# Initialize RAG
-# =========================
-
-@st.cache_resource
-def load_pipeline():
-
-    return RAGPipeline()
 
 
-pipeline = load_pipeline()
 
 
-# =========================
-# Session State
-# =========================
+# ==========================
+# Session
+# ==========================
+
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+
+    st.session_state.messages=[]
 
 
-# =========================
+
+
+
+if "pipeline_cache" not in st.session_state:
+
+    st.session_state.pipeline_cache={}
+
+
+
+
+
+
+
+# ==========================
 # Sidebar
-# =========================
+# ==========================
+
 
 with st.sidebar:
 
+
+
     st.markdown(
+
         """
+
         <div class="sidebar-title">
+
         Egypt Education AI
+
         </div>
+
         """,
+
         unsafe_allow_html=True
+
     )
 
 
-    st.markdown(
+
+    st.write(
+
         """
-        نظام ذكاء اصطناعي للإجابة
-        على الأسئلة المتعلقة بالتعليم المصري
-        باستخدام تقنية RAG.
+
+        نظام RAG متخصص في التعليم المصري.
+
+        يبحث في المصادر ويولد إجابات
+        مدعومة بالمراجع.
+
         """
+
     )
 
 
     st.divider()
+
 
 
     if st.button(
-        "Clear Conversation",
+
+        "Clear Chat",
+
         use_container_width=True
+
     ):
 
-        st.session_state.messages = []
+
+        st.session_state.messages=[]
+
+        st.session_state.pipeline_cache={}
+
         st.rerun()
 
 
-    st.divider()
-
-
-    st.caption(
-        "Retrieval Augmented Generation System"
-    )
 
 
 
-# =========================
+
+# ==========================
 # Header
-# =========================
+# ==========================
+
 
 st.markdown(
-    """
-    <div class="main-header">
 
-        <h1>
-        Egypt Education AI Assistant
-        </h1>
+"""
 
-        <p>
-        Ask questions about Egyptian education policies,
-        universities, regulations and documents.
-        </p>
+<div class="main-header">
 
-    </div>
-    """,
-    unsafe_allow_html=True
+
+<h1>
+Egypt Education AI Assistant
+</h1>
+
+
+<p>
+Real-Time Retrieval Augmented Generation System
+</p>
+
+
+</div>
+
+""",
+
+unsafe_allow_html=True
+
 )
 
 
 
-# =========================
-# Chat History
-# =========================
 
 
-for message in st.session_state.messages:
 
-    role = message["role"]
+# ==========================
+# History
+# ==========================
 
-    with st.chat_message(role):
+
+for msg in st.session_state.messages:
+
+
+    with st.chat_message(
+        msg["role"]
+    ):
+
 
         st.markdown(
-            message["content"]
+            msg["content"]
         )
 
 
-        if "sources" in message:
+        if msg.get("sources"):
+
 
             with st.expander(
-                "Retrieved Sources"
+                "Sources"
             ):
 
-                for source in message["sources"]:
 
-                    st.write(
-                        source
-                    )
+                for src in msg["sources"]:
 
+                    st.write(src)
 
 
-# =========================
-# User Input
-# =========================
+
+
+
+
+
+# ==========================
+# Input
+# ==========================
 
 
 query = st.chat_input(
-    "اكتب سؤالك هنا..."
+
+    "اكتب سؤالك..."
+
 )
+
+
 
 
 if query:
 
 
+
     st.session_state.messages.append(
+
         {
-            "role": "user",
-            "content": query
+
+        "role":"user",
+
+        "content":query
+
         }
+
     )
+
 
 
     with st.chat_message("user"):
@@ -197,51 +300,107 @@ if query:
 
 
 
-    with st.chat_message("assistant"):
+
+    with st.chat_message(
+        "assistant"
+    ):
 
 
-        with st.spinner(
-            "Searching knowledge base..."
-        ):
+
+        status_box = st.empty()
 
 
-            response = pipeline.run(
-                query
+
+        answer_box = st.empty()
+
+
+
+        full_answer=""
+
+
+
+        def update_status(step):
+
+
+            mapping={
+
+
+                "step:analyze":
+                "Analyzing question...",
+
+
+                "step:scrape":
+                "Searching live sources...",
+
+
+                "step:chunk":
+                "Processing documents...",
+
+
+                "step:retrieve":
+                "Finding relevant context...",
+
+
+                "step:generate":
+                "Generating answer..."
+
+            }
+
+
+
+            status_box.info(
+
+                mapping.get(
+                    step,
+                    step
+                )
+
             )
 
 
-        answer = response.get(
-            "answer",
-            "No answer found."
+
+
+
+        result = run_rag_pipeline(
+
+            query,
+
+            stream=True,
+
+            status_callback=update_status
+
         )
 
 
-        sources = response.get(
-            "sources",
-            []
-        )
+
+        for token in result:
 
 
-        st.markdown(answer)
+            full_answer += token
+
+
+            answer_box.markdown(
+                full_answer
+            )
 
 
 
-        if sources:
+        status_box.empty()
 
-            with st.expander(
-                "Retrieved Sources"
-            ):
 
-                for src in sources:
-
-                    st.write(src)
 
 
 
     st.session_state.messages.append(
+
         {
-            "role": "assistant",
-            "content": answer,
-            "sources": sources
+
+        "role":"assistant",
+
+        "content":full_answer,
+
+        "sources":[]
+
         }
+
     )
