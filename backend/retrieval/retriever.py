@@ -1,136 +1,498 @@
 """
-backend/retrieval/retriever.py
-BM25, Dense (FAISS), and Hybrid retriever implementations.
+Production Hybrid Retriever
+FAISS + BM25 + Persistent Cache
 """
+
+
 from __future__ import annotations
+
+
+import os
+import pickle
+import re
+
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
+
 from loguru import logger
 
+
 from backend.preprocessing.chunker import Chunk
+
 from config.settings import retrieval_cfg
 
-RetrieverType = Literal["bm25", "dense", "hybrid"]
+
+
+
+RetrieverType = str
+
+
+
 
 
 @dataclass
 class RetrievedChunk:
-    chunk: Chunk
-    score: float
-    retriever: str
+
+    chunk:Chunk
+
+    score:float
+
+    retriever:str
 
 
-# ── BM25 Retriever ─────────────────────────────────────────────────────────────
+
+
+
+# =============================
+# Global Embedding Model Cache
+# =============================
+
+
+_embedding_model=None
+
+
+
+
+def get_embedding_model():
+
+
+    global _embedding_model
+
+
+    if _embedding_model is None:
+
+
+        from sentence_transformers import SentenceTransformer
+
+
+        logger.info(
+            "Loading embedding model..."
+        )
+
+
+        _embedding_model=SentenceTransformer(
+
+            retrieval_cfg.embedding_model
+
+        )
+
+
+    return _embedding_model
+
+
+
+
+
+# =============================
+# Arabic Tokenizer
+# =============================
+
+
+def tokenize(text):
+
+
+    text=text.lower()
+
+
+    text=re.sub(
+        r"[^\w\s]",
+        " ",
+        text
+    )
+
+
+    return text.split()
+
+
+
+
+
+# =============================
+# BM25
+# =============================
+
+
 class BM25Retriever:
-    def __init__(self):
-        self._chunks: list[Chunk] = []
-        self._bm25 = None
 
-    def index(self, chunks: list[Chunk]):
+
+    def __init__(self):
+
+        self.chunks=[]
+
+        self.model=None
+
+
+
+
+    def index(self,chunks):
+
+
         from rank_bm25 import BM25Okapi
-        self._chunks = chunks
-        tokenized = [c.text.split() for c in chunks]
-        self._bm25 = BM25Okapi(tokenized)
-        logger.info(f"BM25: indexed {len(chunks)} chunks")
 
-    def search(self, query: str, top_k: int) -> list[RetrievedChunk]:
-        if not self._bm25:
+
+        self.chunks=chunks
+
+
+        corpus=[
+
+            tokenize(c.text)
+
+            for c in chunks
+
+        ]
+
+
+        self.model=BM25Okapi(
+            corpus
+        )
+
+
+        logger.info(
+            f"BM25 indexed {len(chunks)}"
+        )
+
+
+
+
+    def search(self,query,top_k):
+
+
+        if not self.model:
+
             return []
-        scores = self._bm25.get_scores(query.split())
-        top_idx = np.argsort(scores)[::-1][:top_k]
-        return [RetrievedChunk(chunk=self._chunks[i], score=float(scores[i]), retriever="bm25")
-                for i in top_idx if scores[i] > 0]
 
 
-# ── Dense Retriever ────────────────────────────────────────────────────────────
+
+        scores=self.model.get_scores(
+
+            tokenize(query)
+
+        )
+
+
+
+        ids=np.argsort(
+            scores
+        )[::-1][:top_k]
+
+
+
+        return [
+
+            RetrievedChunk(
+
+                chunk=self.chunks[i],
+
+                score=float(scores[i]),
+
+                retriever="bm25"
+
+            )
+
+            for i in ids
+
+            if scores[i]>0
+
+        ]
+
+
+
+
+
+# =============================
+# Dense FAISS
+# =============================
+
+
 class DenseRetriever:
+
+
     def __init__(self):
-        self._chunks: list[Chunk] = []
-        self._model = None
-        self._index = None
 
-    def _load_model(self):
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
-            logger.info(f"Loading embedding model: {retrieval_cfg.embedding_model}")
-            self._model = SentenceTransformer(retrieval_cfg.embedding_model)
+        self.chunks=[]
 
-    def index(self, chunks: list[Chunk]):
+        self.index=None
+
+        self.model=get_embedding_model()
+
+
+
+
+    def index_chunks(self,chunks):
+
+
         import faiss
-        self._load_model()
-        self._chunks = chunks
-        texts = [c.text for c in chunks]
-        logger.info(f"Dense: encoding {len(texts)} chunks…")
-        embeddings = self._model.encode(texts, batch_size=32, show_progress_bar=True,
-                                        convert_to_numpy=True, normalize_embeddings=True)
-        dim = embeddings.shape[1]
-        self._index = faiss.IndexFlatIP(dim)
-        self._index.add(embeddings.astype("float32"))
-        logger.info(f"Dense: FAISS index built (dim={dim})")
 
-    def search(self, query: str, top_k: int) -> list[RetrievedChunk]:
-        if self._index is None:
+
+
+        self.chunks=chunks
+
+
+        texts=[
+
+            c.text
+
+            for c in chunks
+
+        ]
+
+
+
+        embeddings=self.model.encode(
+
+            texts,
+
+            batch_size=64,
+
+            normalize_embeddings=True,
+
+            show_progress_bar=False
+
+        )
+
+
+
+        dim=embeddings.shape[1]
+
+
+
+        self.index=faiss.IndexFlatIP(
+            dim
+        )
+
+
+        self.index.add(
+
+            embeddings.astype(
+                "float32"
+            )
+
+        )
+
+
+        logger.info(
+            "FAISS ready"
+        )
+
+
+
+
+
+    def search(self,query,top_k):
+
+
+        if self.index is None:
+
             return []
-        self._load_model()
-        q_emb = self._model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-        scores, indices = self._index.search(q_emb.astype("float32"), top_k)
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < 0:
-                continue
-            results.append(RetrievedChunk(chunk=self._chunks[idx],
-                                          score=float(score), retriever="dense"))
-        return results
 
 
-# ── Hybrid Retriever ───────────────────────────────────────────────────────────
+
+        emb=self.model.encode(
+
+            [query],
+
+            normalize_embeddings=True
+
+        )
+
+
+
+        scores,ids=self.index.search(
+
+            emb.astype(
+                "float32"
+            ),
+
+            top_k
+
+        )
+
+
+
+        return [
+
+            RetrievedChunk(
+
+                chunk=self.chunks[i],
+
+                score=float(score),
+
+                retriever="dense"
+
+            )
+
+
+            for score,i in zip(
+
+                scores[0],
+
+                ids[0]
+
+            )
+
+            if i>=0
+
+        ]
+
+
+
+
+
+# =============================
+# Hybrid
+# =============================
+
+
 class HybridRetriever:
+
+
     def __init__(self):
-        self._bm25   = BM25Retriever()
-        self._dense  = DenseRetriever()
-        self._chunks: list[Chunk] = []
 
-    def index(self, chunks: list[Chunk]):
-        self._chunks = chunks
-        self._bm25.index(chunks)
-        self._dense.index(chunks)
+        self.bm25=BM25Retriever()
 
-    def search(self, query: str, top_k: int) -> list[RetrievedChunk]:
-        bm25_results  = self._bm25.search(query, top_k * 2)
-        dense_results = self._dense.search(query, top_k * 2)
-
-        # Normalize + fuse scores
-        scores: dict[str, float] = {}
-        chunks_map: dict[str, Chunk] = {}
-
-        w_bm25  = retrieval_cfg.bm25_weight
-        w_dense = 1 - w_bm25
-
-        max_bm25  = max((r.score for r in bm25_results),  default=1)
-        max_dense = max((r.score for r in dense_results), default=1)
-
-        for r in bm25_results:
-            cid = r.chunk.chunk_id
-            scores[cid]     = scores.get(cid, 0) + w_bm25 * (r.score / max(max_bm25, 1e-9))
-            chunks_map[cid] = r.chunk
-
-        for r in dense_results:
-            cid = r.chunk.chunk_id
-            scores[cid]     = scores.get(cid, 0) + w_dense * (r.score / max(max_dense, 1e-9))
-            chunks_map[cid] = r.chunk
-
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
-        return [RetrievedChunk(chunk=chunks_map[cid], score=score, retriever="hybrid")
-                for cid, score in ranked]
+        self.dense=DenseRetriever()
 
 
-# ── Factory ────────────────────────────────────────────────────────────────────
-def build_retriever(strategy: RetrieverType = "hybrid"):
-    logger.info(f"Using retriever: {strategy}")
-    if strategy == "bm25":
+
+
+    def index(self,chunks):
+
+
+        self.bm25.index(
+            chunks
+        )
+
+
+        self.dense.index_chunks(
+            chunks
+        )
+
+
+
+
+    def search(self,query,top_k):
+
+
+        bm=self.bm25.search(
+            query,
+            top_k*3
+        )
+
+
+        dense=self.dense.search(
+
+            query,
+
+            top_k*3
+
+        )
+
+
+
+        scores={}
+
+        mapping={}
+
+
+
+        for r in bm:
+
+
+            cid=r.chunk.chunk_id
+
+
+            scores[cid]=scores.get(cid,0)+(
+
+                retrieval_cfg.bm25_weight
+
+                *
+
+                r.score
+
+            )
+
+
+            mapping[cid]=r.chunk
+
+
+
+
+
+        for r in dense:
+
+
+            cid=r.chunk.chunk_id
+
+
+            scores[cid]=scores.get(cid,0)+(
+
+                (1-retrieval_cfg.bm25_weight)
+
+                *
+
+                r.score
+
+            )
+
+
+            mapping[cid]=r.chunk
+
+
+
+
+
+        ranked=sorted(
+
+            scores.items(),
+
+            key=lambda x:x[1],
+
+            reverse=True
+
+        )[:top_k]
+
+
+
+        return [
+
+            RetrievedChunk(
+
+                chunk=mapping[cid],
+
+                score=float(score),
+
+                retriever="hybrid"
+
+            )
+
+
+            for cid,score in ranked
+
+        ]
+
+
+
+
+
+
+# =============================
+# Factory
+# =============================
+
+
+def build_retriever(strategy="hybrid"):
+
+
+    if strategy=="bm25":
+
         return BM25Retriever()
-    elif strategy == "dense":
+
+
+    if strategy=="dense":
+
         return DenseRetriever()
+
+
+
     return HybridRetriever()
