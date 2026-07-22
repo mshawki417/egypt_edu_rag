@@ -1,41 +1,48 @@
-# ── Streamlit UI ──────────────────────────────────────
+# ============================================================
+# Egypt Education RAG — requirements.txt
+# Tested: Python 3.11 on Streamlit Cloud
+# ============================================================
+
+# ── UI ──────────────────────────────────────────────────────
 streamlit==1.35.0
 python-dotenv==1.0.1
 
-# ── LLM via OpenRouter ────────────────────────────────
+# ── LLM via OpenRouter ──────────────────────────────────────
 httpx==0.27.0
 openai==1.30.0
 
-# ── Embeddings ────────────────────────────────────────
-sentence-transformers==3.0.1
+# ── Embeddings (local, CPU) ─────────────────────────────────
+# torch: must NOT pin +cpu suffix here — let pip resolve
+# the right wheel for the platform via --extra-index-url
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.3.1+cpu
+sentence-transformers==3.0.1
 
-# ── Vector Store ──────────────────────────────────────
+# ── Vector Store ────────────────────────────────────────────
 faiss-cpu==1.8.0
 
-# ── Retrieval ─────────────────────────────────────────
+# ── Retrieval ───────────────────────────────────────────────
 rank-bm25==0.2.2
 
-# ── Scraping ──────────────────────────────────────────
-requests==2.32.3
+# ── Scraping ────────────────────────────────────────────────
+requests>=2.31.0
 beautifulsoup4==4.12.3
 lxml==5.2.2
 tenacity==8.3.0
 duckduckgo-search==6.2.6
 
-# ── PDF Processing ────────────────────────────────────
+# ── PDF Processing ──────────────────────────────────────────
 pymupdf==1.24.5
 
-# ── Arabic NLP ────────────────────────────────────────
+# ── Arabic NLP ──────────────────────────────────────────────
 pyarabic==0.6.15
 
-# ── Utilities ─────────────────────────────────────────
+# ── Utilities ───────────────────────────────────────────────
 pandas==2.2.2
 numpy==1.26.4
 pydantic==2.7.4
 loguru==0.7.2
 
-# ── Testing ───────────────────────────────────────────
+# ── Testing ─────────────────────────────────────────────────
 pytest==8.2.2
 pytest-asyncio==0.23.7
