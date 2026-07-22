@@ -1,134 +1,492 @@
+/* ==================================================
+   Egypt Education RAG
+   Professional AI Interface
+================================================== */
+
+
 /* ======================
    Global
 ====================== */
 
-body {
+
+html, body {
 
     direction: rtl;
+    font-family:
+    "Inter",
+    "Segoe UI",
+    Tahoma,
+    Arial,
+    sans-serif;
+
 }
+
+
+.main {
+
+    background:#ffffff;
+
+}
+
+
+
+
+/* ======================
+   Header
+====================== */
 
 
 .main-header {
 
-    text-align: center;
-    padding: 25px;
 
-    border-radius: 16px;
+    padding:35px 25px;
+
+    margin-bottom:30px;
+
+    border-radius:22px;
+
 
     background:
+
     linear-gradient(
         135deg,
-        #f8fafc,
-        #eef2ff
+        #f8fafc 0%,
+        #eef2ff 100%
     );
 
-    margin-bottom: 25px;
+
+    border:
+
+    1px solid #e5e7eb;
+
 
 }
+
 
 
 .main-header h1 {
 
-    font-size: 34px;
-    font-weight: 700;
+
+    margin:0;
+
+
+    font-size:38px;
+
+
+    font-weight:800;
+
+
+    letter-spacing:-0.5px;
+
 
     color:#111827;
 
+
 }
+
 
 
 .main-header p {
 
-    font-size:16px;
 
-    color:#4b5563;
+    margin-top:12px;
+
+
+    font-size:17px;
+
+
+    color:#6b7280;
+
 
 }
 
 
 
+
+
 /* ======================
- Sidebar
+   Sidebar
 ====================== */
+
+
+section[data-testid="stSidebar"] {
+
+
+    background:#fafafa;
+
+
+    border-left:
+
+    1px solid #e5e7eb;
+
+
+}
+
 
 
 .sidebar-title {
 
-    font-size:24px;
 
-    font-weight:700;
+    font-size:26px;
+
+
+    font-weight:800;
+
 
     color:#111827;
 
-    margin-bottom:20px;
+
+    margin-bottom:15px;
+
 
 }
+
+
 
 
 
 /* ======================
- Chat
+   Chat Container
 ====================== */
-
-
-.stChatMessage {
-
-    border-radius:16px;
-
-}
-
 
 
 div[data-testid="stChatMessage"] {
 
-    padding:15px;
+
+    border-radius:18px;
+
+
+    padding:18px;
+
+
+    margin-bottom:18px;
+
+
+    border:
+
+    1px solid #e5e7eb;
+
+
+    background:white;
+
 
 }
 
 
 
+
+
+/* User Message */
+
+
+div[data-testid="stChatMessage"]:has(
+
+[data-testid="chatAvatarIcon-user"]
+
+){
+
+
+    background:#f8fafc;
+
+
+}
+
+
+
+
+/* Assistant Message */
+
+
+div[data-testid="stChatMessage"]:has(
+
+[data-testid="chatAvatarIcon-assistant"]
+
+){
+
+
+    background:#ffffff;
+
+
+}
+
+
+
+
+/* Text */
+
+
+div[data-testid="stChatMessage"] p {
+
+
+    font-size:16px;
+
+
+    line-height:1.9;
+
+
+    color:#1f2937;
+
+
+}
+
+
+
+
+
+
+
 /* ======================
- Buttons
+   Input Box
+====================== */
+
+
+div[data-testid="stChatInput"] {
+
+
+    border-radius:18px;
+
+
+}
+
+
+
+
+div[data-testid="stChatInput"] textarea {
+
+
+    border-radius:16px;
+
+
+    font-size:16px;
+
+
+}
+
+
+
+
+
+/* ======================
+   Buttons
 ====================== */
 
 
 .stButton button {
 
 
-    border-radius:10px;
+    width:100%;
 
-    height:42px;
+
+    height:44px;
+
+
+    border-radius:12px;
+
+
+    border:
+
+    1px solid #d1d5db;
+
+
+    background:white;
+
+
+    color:#111827;
+
 
     font-weight:600;
+
+
+    transition:0.2s;
+
 
 }
 
 
 
+.stButton button:hover {
+
+
+    border-color:#6366f1;
+
+
+    color:#4f46e5;
+
+
+}
+
+
+
+
+
 /* ======================
- Cards
+   Sources Cards
 ====================== */
 
 
 div[data-testid="stExpander"] {
 
-    border-radius:12px;
+
+    border-radius:16px;
+
+
+    border:
+
+    1px solid #e5e7eb;
+
+
+    background:#fafafa;
+
 
 }
 
 
 
+div[data-testid="stExpander"] summary {
+
+
+    font-weight:700;
+
+
+    color:#374151;
+
+
+}
+
+
+
+
+
 /* ======================
- Mobile
+   Status Messages
+====================== */
+
+
+.stAlert {
+
+
+    border-radius:14px;
+
+
+}
+
+
+
+
+
+
+/* ======================
+   Hide Streamlit Branding
+====================== */
+
+
+#MainMenu {
+
+
+    visibility:hidden;
+
+
+}
+
+
+
+footer {
+
+
+    visibility:hidden;
+
+
+}
+
+
+
+header {
+
+
+    visibility:hidden;
+
+
+}
+
+
+
+
+
+/* ======================
+   Scrollbar
+====================== */
+
+
+::-webkit-scrollbar {
+
+
+    width:8px;
+
+
+}
+
+
+
+::-webkit-scrollbar-track {
+
+
+    background:#f9fafb;
+
+
+}
+
+
+
+::-webkit-scrollbar-thumb {
+
+
+    border-radius:20px;
+
+
+    background:#d1d5db;
+
+
+}
+
+
+
+
+
+/* ======================
+   Mobile
 ====================== */
 
 
 @media(max-width:768px){
 
-    .main-header h1{
 
-        font-size:25px;
+    .main-header {
+
+
+        padding:25px 15px;
+
 
     }
+
+
+
+    .main-header h1 {
+
+
+        font-size:26px;
+
+
+    }
+
+
+
+    .main-header p {
+
+
+        font-size:14px;
+
+
+    }
+
 
 }
