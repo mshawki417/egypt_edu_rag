@@ -1,6 +1,6 @@
 """
 High Performance Async RAG Chain
-OpenRouter + Streaming + Context Optimization
+OpenRouter + Context Optimization
 """
 
 
@@ -23,10 +23,10 @@ from backend.retrieval.retriever import RetrievedChunk
 
 
 
+
 OPENROUTER_URL = (
     "https://openrouter.ai/api/v1/chat/completions"
 )
-
 
 
 
@@ -36,43 +36,19 @@ OPENROUTER_URL = (
 
 
 BASE_PROMPT = """
+
 أنت مساعد ذكاء اصطناعي متخصص في التعليم المصري.
 
-تعليمات مهمة:
+القواعد:
+
 - استخدم فقط المعلومات الموجودة في السياق.
 - لا تخترع معلومات.
-- إذا لم تجد الإجابة قل: لا توجد معلومات كافية.
-- أجب بالعربية الفصحى البسيطة.
+- إذا لم تجد الإجابة قل:
+  لا توجد معلومات كافية.
+- أجب باللغة العربية الفصحى البسيطة.
 - استخدم نقاط عند الحاجة.
-"""
-
-
-
-INTENT_PROMPTS={
-
-
-"news":
 
 """
-ركز على الأخبار والقرارات الحديثة.
-اذكر التاريخ والمصدر.
-""",
-
-
-"exam":
-
-"""
-ركز على مواعيد الامتحانات والقواعد الرسمية.
-""",
-
-
-"curriculum":
-
-"""
-ركز على شرح المناهج والمحتوى التعليمي.
-"""
-
-}
 
 
 
@@ -102,13 +78,16 @@ class RAGAnswer:
 
 
 # =========================
-# Context Builder
+# Context
 # =========================
 
 
 def build_context(
+
     chunks:list[RetrievedChunk],
-    max_chunks=4
+
+    max_chunks=5
+
 ):
 
 
@@ -118,41 +97,44 @@ def build_context(
     parts=[]
 
 
-    for idx,rc in enumerate(
+
+    for idx, item in enumerate(
+
         selected,
+
         1
+
     ):
 
 
-        source = (
+        chunk=item.chunk
 
-            rc.chunk.metadata.get(
-                "source",
-                rc.chunk.source_url
-            )
-
-        )
 
 
         parts.append(
 
             f"""
+
 [{idx}]
+
 المصدر:
-{source}
+{chunk.source_url}
+
 
 العنوان:
-{rc.chunk.title}
+{chunk.title}
+
 
 المحتوى:
-{rc.chunk.text}
+
+{chunk.text}
+
 """
 
         )
 
 
-
-    return "\n------\n".join(parts)
+    return "\n------------\n".join(parts)
 
 
 
@@ -165,32 +147,44 @@ def build_context(
 
 def headers():
 
+
     if not llm_cfg.openrouter_api_key:
 
+
         raise ValueError(
-            "Missing OPENROUTER_API_KEY"
+
+            "OPENROUTER_API_KEY is missing"
+
         )
+
 
 
     return {
 
+
         "Authorization":
+
         f"Bearer {llm_cfg.openrouter_api_key}",
 
 
+
         "Content-Type":
+
         "application/json",
 
 
+
         "HTTP-Referer":
+
         "https://github.com/egypt-edu-rag",
 
 
+
         "X-Title":
+
         "Egypt Education RAG"
 
     }
-
 
 
 
@@ -201,9 +195,13 @@ def headers():
 
 
 def payload(
+
     question,
+
     context,
+
     stream=False
+
 ):
 
 
@@ -211,42 +209,56 @@ def payload(
 
 
         "model":
+
         llm_cfg.model,
 
 
+
         "temperature":
+
         llm_cfg.temperature,
 
 
+
         "max_tokens":
+
         llm_cfg.max_tokens,
 
 
+
         "stream":
+
         stream,
 
 
-        "messages":[
 
+        "messages":
+
+        [
 
             {
 
-            "role":
-            "system",
+                "role":
 
-            "content":
-            BASE_PROMPT
+                "system",
+
+                "content":
+
+                BASE_PROMPT
 
             },
 
 
             {
 
-            "role":
-            "user",
+                "role":
 
-            "content":
-            f"""
+                "user",
+
+                "content":
+
+                f"""
+
 السؤال:
 
 {question}
@@ -258,6 +270,7 @@ def payload(
 
 
 الإجابة:
+
 """
 
             }
@@ -269,24 +282,26 @@ def payload(
 
 
 
-
 # =========================
-# Async Generate
+# Generate
 # =========================
 
 
 async def generate_answer_async(
+
     question,
+
     chunks
+
 ):
 
 
     if not chunks:
 
+
         return RAGAnswer(
 
-            answer=
-            "لا توجد معلومات كافية.",
+            answer="لا توجد معلومات كافية.",
 
             sources=[],
 
@@ -298,21 +313,28 @@ async def generate_answer_async(
 
 
 
-    context=build_context(
+    context = build_context(
+
         chunks
+
     )
 
 
-
-    async with httpx.AsyncClient(
-        timeout=60
-    ) as client:
+    answer = ""
 
 
-        try:
+
+    try:
 
 
-            response=await client.post(
+        async with httpx.AsyncClient(
+
+            timeout=60
+
+        ) as client:
+
+
+            response = await client.post(
 
                 OPENROUTER_URL,
 
@@ -329,6 +351,7 @@ async def generate_answer_async(
             )
 
 
+
             response.raise_for_status()
 
 
@@ -337,23 +360,43 @@ async def generate_answer_async(
 
 
 
-            answer=data["choices"][0]["message"]["content"]
+            answer=(
 
+                data
 
+                ["choices"]
 
-        except Exception as e:
+                [0]
 
+                ["message"]
 
-            logger.error(
-                e
+                ["content"]
+
             )
 
 
-            answer="حدث خطأ أثناء الاتصال بالنموذج."
+
+    except Exception as e:
+
+
+        logger.exception(
+
+            e
+
+        )
+
+
+        answer=(
+
+            "حدث خطأ أثناء توليد الإجابة."
+
+        )
+
 
 
 
     return RAGAnswer(
+
 
         answer=answer,
 
@@ -362,19 +405,25 @@ async def generate_answer_async(
 
             {
 
-            "title":
-            c.chunk.title,
+                "title":
+
+                c.chunk.title,
 
 
-            "url":
-            c.chunk.source_url,
+                "url":
+
+                c.chunk.source_url,
 
 
-            "score":
-            round(
-                c.score,
-                4
-            )
+                "score":
+
+                round(
+
+                    c.score,
+
+                    4
+
+                )
 
             }
 
@@ -383,11 +432,15 @@ async def generate_answer_async(
         ],
 
 
+
         retriever_used=
+
         chunks[0].retriever,
 
 
+
         chunks_retrieved=
+
         len(chunks)
 
     )
@@ -402,18 +455,25 @@ async def generate_answer_async(
 
 
 async def stream_answer_async(
+
     question,
+
     chunks
+
 ):
 
 
-    context=build_context(
+    context = build_context(
+
         chunks
+
     )
 
 
     async with httpx.AsyncClient(
+
         timeout=120
+
     ) as client:
 
 
@@ -446,8 +506,11 @@ async def stream_answer_async(
                     continue
 
 
+
                 if line.startswith(
+
                     "data:"
+
                 ):
 
 
@@ -465,19 +528,28 @@ async def stream_answer_async(
 
 
                         obj=json.loads(
+
                             data
+
                         )
 
 
                         token=(
 
                             obj
+
                             ["choices"]
+
                             [0]
+
                             ["delta"]
+
                             .get(
+
                                 "content",
+
                                 ""
+
                             )
 
                         )
