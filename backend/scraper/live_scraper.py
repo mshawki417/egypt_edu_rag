@@ -1,6 +1,6 @@
 """
-Live Web Scraper
-Real-Time RAG Data Collector
+Live Scraper
+Real-Time RAG Source Collector
 """
 
 from __future__ import annotations
@@ -8,11 +8,40 @@ from __future__ import annotations
 
 import asyncio
 
+import hashlib
+
 import httpx
 
 from bs4 import BeautifulSoup
 
+from dataclasses import dataclass, field
+
 from loguru import logger
+
+
+
+# ==========================
+# Document Schema
+# ==========================
+
+@dataclass
+class RawDocument:
+
+
+    content: str
+
+    source_url: str
+
+    title: str = ""
+
+    doc_id: str = ""
+
+    doc_type: str = "web"
+
+    metadata: dict = field(
+        default_factory=dict
+    )
+
 
 
 
@@ -23,12 +52,8 @@ from loguru import logger
 SCRAPER_CACHE = {}
 
 
-
-# ==========================
-# Request Control
-# ==========================
-
 REQUEST_LIMIT = asyncio.Semaphore(5)
+
 
 
 
@@ -37,8 +62,11 @@ REQUEST_LIMIT = asyncio.Semaphore(5)
 # ==========================
 
 async def fetch_url(
+
     client,
+
     url
+
 ):
 
 
@@ -47,45 +75,66 @@ async def fetch_url(
         return SCRAPER_CACHE[url]
 
 
+
     async with REQUEST_LIMIT:
 
         try:
 
+
             response = await client.get(
+
                 url,
+
                 timeout=20
+
             )
 
 
             response.raise_for_status()
 
 
+
             content_type = response.headers.get(
+
                 "content-type",
+
                 ""
+
             )
+
 
 
             if "pdf" in content_type:
 
-                data = response.content
+
+                data = response.text
+
 
 
             else:
 
+
                 soup = BeautifulSoup(
+
                     response.text,
+
                     "html.parser"
+
                 )
 
 
                 data = soup.get_text(
+
                     separator=" ",
+
                     strip=True
+
                 )
 
 
+
             SCRAPER_CACHE[url] = data
+
 
 
             return data
@@ -96,7 +145,9 @@ async def fetch_url(
 
 
             logger.warning(
+
                 f"Fetch failed {url}: {e}"
+
             )
 
 
@@ -104,8 +155,9 @@ async def fetch_url(
 
 
 
+
 # ==========================
-# Search Sources
+# Search URLs
 # ==========================
 
 def build_search_urls(query):
@@ -114,21 +166,20 @@ def build_search_urls(query):
     from urllib.parse import quote
 
 
-    encoded = quote(query)
+    q = quote(query)
 
 
     return [
 
-        f"https://duckduckgo.com/html/?q={encoded}",
-
-        f"https://www.google.com/search?q={encoded}"
+        f"https://duckduckgo.com/html/?q={q}"
 
     ]
 
 
 
+
 # ==========================
-# Main RAG Scraper
+# Main Scraper
 # ==========================
 
 async def async_scrape_for_query(meta):
@@ -137,17 +188,24 @@ async def async_scrape_for_query(meta):
     query = meta.search_query
 
 
+
     logger.info(
-        f"Live scraping query: {query}"
+
+        f"Searching: {query}"
+
     )
+
 
 
     urls = build_search_urls(
+
         query
+
     )
 
 
-    documents = []
+
+    documents=[]
 
 
 
@@ -166,49 +224,77 @@ async def async_scrape_for_query(meta):
 
 
 
-        tasks = [
-
-            fetch_url(
-                client,
-                url
-            )
-
-            for url in urls
-
-        ]
-
-
-
         results = await asyncio.gather(
-            *tasks
+
+            *[
+
+                fetch_url(
+
+                    client,
+
+                    url
+
+                )
+
+                for url in urls
+
+            ]
+
         )
 
 
 
         for url, content in zip(
+
             urls,
+
             results
+
         ):
 
 
-            if content:
+            if not content:
+
+                continue
 
 
-                documents.append(
 
-                    {
+            doc_id = hashlib.md5(
 
-                        "source": url,
+                url.encode()
 
-                        "content": content
+            ).hexdigest()
+
+
+
+            documents.append(
+
+                RawDocument(
+
+                    content=content,
+
+                    source_url=url,
+
+                    title=query,
+
+                    doc_id=doc_id,
+
+                    metadata={
+
+                        "query":query
 
                     }
 
                 )
 
+            )
+
+
 
     logger.info(
-        f"Scraped documents: {len(documents)}"
+
+        f"Collected {len(documents)} documents"
+
     )
 
 
