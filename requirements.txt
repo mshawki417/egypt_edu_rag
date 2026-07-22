@@ -50,6 +50,9 @@ pandas
 pydantic
 loguru
 
+torch
+torchvision
+torchaudio
 
 # Testing
 pytest
