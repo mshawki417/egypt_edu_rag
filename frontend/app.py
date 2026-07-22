@@ -1,6 +1,6 @@
 """
 Egypt Education RAG
-Real-Time Streamlit Frontend
+Production Streamlit Frontend
 
 Author:
 Mustafa Shawki
@@ -39,10 +39,11 @@ from backend.rag.orchestrator import run_rag_pipeline
 # Config
 # ==========================
 
-
 st.set_page_config(
 
     page_title="Egypt Education AI",
+
+    page_icon=None,
 
     layout="wide",
 
@@ -53,12 +54,9 @@ st.set_page_config(
 
 
 
-
-
 # ==========================
 # CSS
 # ==========================
-
 
 def load_css():
 
@@ -102,25 +100,13 @@ load_css()
 
 
 
-
 # ==========================
 # Session
 # ==========================
 
-
 if "messages" not in st.session_state:
 
     st.session_state.messages=[]
-
-
-
-
-
-if "pipeline_cache" not in st.session_state:
-
-    st.session_state.pipeline_cache={}
-
-
 
 
 
@@ -132,7 +118,6 @@ if "pipeline_cache" not in st.session_state:
 
 
 with st.sidebar:
-
 
 
     st.markdown(
@@ -152,15 +137,14 @@ with st.sidebar:
     )
 
 
-
     st.write(
 
         """
 
         نظام RAG متخصص في التعليم المصري.
 
-        يبحث في المصادر ويولد إجابات
-        مدعومة بالمراجع.
+        يسترجع المعلومات من المصادر
+        ويولد إجابات مدعومة بالمراجع.
 
         """
 
@@ -182,10 +166,7 @@ with st.sidebar:
 
         st.session_state.messages=[]
 
-        st.session_state.pipeline_cache={}
-
         st.rerun()
-
 
 
 
@@ -194,7 +175,6 @@ with st.sidebar:
 # ==========================
 # Header
 # ==========================
-
 
 st.markdown(
 
@@ -209,7 +189,7 @@ Egypt Education AI Assistant
 
 
 <p>
-Real-Time Retrieval Augmented Generation System
+Real-Time Retrieval Augmented Generation
 </p>
 
 
@@ -225,36 +205,47 @@ unsafe_allow_html=True
 
 
 
-
 # ==========================
-# History
+# Chat History
 # ==========================
 
 
-for msg in st.session_state.messages:
+for message in st.session_state.messages:
 
 
     with st.chat_message(
-        msg["role"]
+
+        message["role"]
+
     ):
 
 
         st.markdown(
-            msg["content"]
+
+            message["content"]
+
         )
 
 
-        if msg.get("sources"):
+
+        if message.get("sources"):
 
 
             with st.expander(
+
                 "Sources"
+
             ):
 
 
-                for src in msg["sources"]:
+                for source in message["sources"]:
 
-                    st.write(src)
+
+                    st.write(
+
+                        source
+
+                    )
 
 
 
@@ -263,7 +254,7 @@ for msg in st.session_state.messages:
 
 
 # ==========================
-# Input
+# User Input
 # ==========================
 
 
@@ -275,18 +266,20 @@ query = st.chat_input(
 
 
 
-
 if query:
-
 
 
     st.session_state.messages.append(
 
         {
 
-        "role":"user",
+            "role":
 
-        "content":query
+            "user",
+
+            "content":
+
+            query
 
         }
 
@@ -294,113 +287,125 @@ if query:
 
 
 
-    with st.chat_message("user"):
+    with st.chat_message(
 
-        st.markdown(query)
+        "user"
+
+    ):
+
+        st.markdown(
+
+            query
+
+        )
+
 
 
 
 
     with st.chat_message(
+
         "assistant"
+
     ):
 
 
-
-        status_box = st.empty()
-
+        status = st.empty()
 
 
-        answer_box = st.empty()
-
-
-
-        full_answer=""
+        answer_area = st.empty()
 
 
 
         def update_status(step):
 
 
-            mapping={
-
-
-                "step:analyze":
-                "Analyzing question...",
-
-
-                "step:scrape":
-                "Searching live sources...",
-
-
-                "step:chunk":
-                "Processing documents...",
-
-
-                "step:retrieve":
-                "Finding relevant context...",
-
-
-                "step:generate":
-                "Generating answer..."
-
-            }
+            status.info(step)
 
 
 
-            status_box.info(
 
-                mapping.get(
-                    step,
-                    step
-                )
+        try:
+
+
+            result = run_rag_pipeline(
+
+                query,
+
+                stream=False,
+
+                status_callback=update_status
+
+            )
+
+
+
+            status.empty()
+
+
+
+            answer = result.answer
+
+
+
+            answer_area.markdown(
+
+                answer
 
             )
 
 
 
 
-
-        result = run_rag_pipeline(
-
-            query,
-
-            stream=True,
-
-            status_callback=update_status
-
-        )
+            if result.sources:
 
 
+                with st.expander(
 
-        for token in result:
+                    "Sources"
+
+                ):
 
 
-            full_answer += token
+                    for src in result.sources:
 
 
-            answer_box.markdown(
-                full_answer
+                        st.write(
+
+                            src
+
+                        )
+
+
+
+
+            st.session_state.messages.append(
+
+                {
+
+                    "role":
+
+                    "assistant",
+
+                    "content":
+
+                    answer,
+
+                    "sources":
+
+                    result.sources
+
+                }
+
             )
 
 
 
-        status_box.empty()
+        except Exception as e:
 
 
+            status.error(
 
+                f"Pipeline Error: {e}"
 
-
-    st.session_state.messages.append(
-
-        {
-
-        "role":"assistant",
-
-        "content":full_answer,
-
-        "sources":[]
-
-        }
-
-    )
+            )
