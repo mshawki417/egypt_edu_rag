@@ -9,70 +9,71 @@ import asyncio
 
 from loguru import logger
 
+
 from backend.scraper.query_analyzer import (
     analyze_query,
     QueryMetadata
 )
 
+
 from backend.scraper.live_scraper import (
     async_scrape_for_query
 )
 
+
 from backend.preprocessing.chunker import (
     process_documents
 )
+
 
 from backend.retrieval.retriever import (
     build_retriever,
     RetrieverType
 )
 
+
 from backend.rag.chain import (
     generate_answer_async,
     RAGAnswer
 )
 
+
 from config.settings import retrieval_cfg
 
 
-# ==========================
-# Cache
-# ==========================
 
 PIPELINE_CACHE = {}
 
 
+
 def cache_key(question):
+
     return question.strip().lower()
 
 
 
-# ==========================
-# Status
-# ==========================
-
-def update_status(callback, msg):
+def update_status(callback,msg):
 
     logger.info(msg)
 
     if callback:
+
         callback(msg)
 
 
 
-# ==========================
-# Async Pipeline
-# ==========================
+
 
 async def run_rag_pipeline_async(
 
-    question: str,
+    question:str,
 
-    retriever_strategy: RetrieverType = "hybrid",
+    retriever_strategy:RetrieverType="hybrid",
 
     status_callback=None
 
 ):
+
 
     update_status(
         status_callback,
@@ -80,7 +81,7 @@ async def run_rag_pipeline_async(
     )
 
 
-    meta: QueryMetadata = analyze_query(
+    meta:QueryMetadata = analyze_query(
         question
     )
 
@@ -90,20 +91,15 @@ async def run_rag_pipeline_async(
     )
 
 
-    # ----------------------
-    # Cache
-    # ----------------------
 
     if key in PIPELINE_CACHE:
 
-        chunks = PIPELINE_CACHE[key]
 
-        logger.info(
-            "Using cached chunks"
-        )
+        chunks = PIPELINE_CACHE[key]
 
 
     else:
+
 
         update_status(
             status_callback,
@@ -118,6 +114,7 @@ async def run_rag_pipeline_async(
 
         if not docs:
 
+
             return RAGAnswer(
 
                 answer="لم يتم العثور على مصادر.",
@@ -127,6 +124,7 @@ async def run_rag_pipeline_async(
                 retriever_used="none",
 
                 chunks_retrieved=0
+
             )
 
 
@@ -141,7 +139,8 @@ async def run_rag_pipeline_async(
         )
 
 
-        PIPELINE_CACHE[key] = chunks
+        PIPELINE_CACHE[key]=chunks
+
 
 
 
@@ -184,7 +183,8 @@ async def run_rag_pipeline_async(
     )
 
 
-    answer = await generate_answer_async(
+
+    return await generate_answer_async(
 
         question,
 
@@ -193,20 +193,17 @@ async def run_rag_pipeline_async(
     )
 
 
-    return answer
 
 
 
-
-# ==========================
-# Streamlit Wrapper
-# ==========================
 
 def run_rag_pipeline(
 
     question,
 
     retriever_strategy="hybrid",
+
+    stream=False,
 
     status_callback=None
 
@@ -229,9 +226,7 @@ def run_rag_pipeline(
 
 
 
-# ==========================
-# Metadata
-# ==========================
+
 
 def get_pipeline_metadata(question):
 
@@ -243,18 +238,28 @@ def get_pipeline_metadata(question):
 
     return {
 
-        "grade": meta.grade,
+        "grade":
 
-        "subject": meta.subject,
+        meta.grade,
 
-        "term": meta.term,
 
-        "domain": meta.domain,
+        "subject":
 
-        "intent": meta.intent,
+        meta.subject,
 
-        "live": meta.needs_live_search,
 
-        "query": meta.search_query
+        "intent":
+
+        meta.intent,
+
+
+        "live":
+
+        meta.needs_live_search,
+
+
+        "query":
+
+        meta.search_query
 
     }
