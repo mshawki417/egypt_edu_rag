@@ -9,17 +9,23 @@ from __future__ import annotations
 import asyncio
 import hashlib
 
+from contextvars import ContextVar
+
 import httpx
-
-from bs4 import BeautifulSoup
-from dataclasses import dataclass, field
-
-from loguru import logger
-from cachetools import TTLCache
 
 import fitz
 
+from bs4 import BeautifulSoup
+
+from dataclasses import dataclass, field
+
+from cachetools import TTLCache
+
+from loguru import logger
+
 from ddgs import DDGS
+
+
 
 
 
@@ -27,8 +33,10 @@ from ddgs import DDGS
 # Document Schema
 # ==========================
 
+
 @dataclass
 class RawDocument:
+
 
     content: str
 
@@ -46,59 +54,78 @@ class RawDocument:
 
 
 
+
+
+
 # ==========================
 # Cache
 # ==========================
 
+
 SCRAPER_CACHE = TTLCache(
+
     maxsize=1000,
+
     ttl=3600
+
 )
 
 
 
+
+
 # ==========================
-# Async Request Limiter
+# Async Semaphore
 # ==========================
+
+
+_request_limit_ctx = ContextVar(
+
+    "request_limit",
+
+    default=None
+
+)
+
+
 
 def get_request_limit():
 
-    """
-    Creates semaphore per current asyncio task/event loop.
-    Prevents Streamlit asyncio.run() loop conflicts.
-    """
 
-    task = asyncio.current_task()
-
-
-    if task is None:
-
-        return asyncio.Semaphore(5)
+    semaphore = _request_limit_ctx.get()
 
 
 
-    if not hasattr(
-        task,
-        "_rag_request_limit"
-    ):
+    if semaphore is None:
 
-        task._rag_request_limit = asyncio.Semaphore(
-            5
+
+        semaphore = asyncio.Semaphore(5)
+
+
+
+        _request_limit_ctx.set(
+
+            semaphore
+
         )
 
 
-    return task._rag_request_limit
+
+    return semaphore
+
+
 
 
 
 
 
 # ==========================
-# Domain Rules
+# Domains
 # ==========================
 
 
 ALLOWED_DOMAINS = [
+
 
     "moe.gov.eg",
 
@@ -118,7 +145,9 @@ ALLOWED_DOMAINS = [
 
 
 
+
 BLOCKED_DOMAINS = [
+
 
     "reddit.com",
 
@@ -136,35 +165,38 @@ BLOCKED_DOMAINS = [
 
 
 
+
 def valid_url(url: str):
 
 
     if any(
+
         domain in url
+
         for domain in BLOCKED_DOMAINS
+
     ):
 
         return False
 
 
 
-    if ALLOWED_DOMAINS:
+    return any(
 
-        return any(
-            domain in url
-            for domain in ALLOWED_DOMAINS
-        )
+        domain in url
+
+        for domain in ALLOWED_DOMAINS
+
+    )
 
 
-
-    return True
 
 
 
 
 
 # ==========================
-# Fetch URL
+# Fetch
 # ==========================
 
 
@@ -179,11 +211,18 @@ async def fetch_url(
 
     if url in SCRAPER_CACHE:
 
+
         return SCRAPER_CACHE[url]
 
 
 
-    async with get_request_limit():
+
+    semaphore = get_request_limit()
+
+
+
+    async with semaphore:
+
 
         try:
 
@@ -212,7 +251,8 @@ async def fetch_url(
 
 
 
-            if "pdf" in content_type:
+
+            if "pdf" in content_type.lower():
 
 
                 pdf = fitz.open(
@@ -224,12 +264,15 @@ async def fetch_url(
                 )
 
 
-                data = ""
+
+                text = ""
+
 
 
                 for page in pdf:
 
-                    data += page.get_text()
+
+                    text += page.get_text()
 
 
 
@@ -238,6 +281,7 @@ async def fetch_url(
 
 
             else:
+
 
 
                 soup = BeautifulSoup(
@@ -260,7 +304,9 @@ async def fetch_url(
 
                         "nav",
 
-                        "footer"
+                        "footer",
+
+                        "header"
 
                     ]
 
@@ -270,7 +316,7 @@ async def fetch_url(
 
 
 
-                data = soup.get_text(
+                text = soup.get_text(
 
                     separator=" ",
 
@@ -282,18 +328,21 @@ async def fetch_url(
 
 
 
-            if len(data) < 200:
+
+            if len(text) < 200:
+
 
                 return None
 
 
 
 
-            SCRAPER_CACHE[url] = data
+            SCRAPER_CACHE[url] = text
 
 
 
-            return data
+            return text
+
 
 
 
@@ -316,8 +365,9 @@ async def fetch_url(
 
 
 
+
 # ==========================
-# Search URLs
+# Search
 # ==========================
 
 
@@ -326,25 +376,28 @@ def build_search_urls(query):
 
     logger.info(
 
-        f"DDG Search for: {query}"
+        f"DDG Search: {query}"
 
     )
 
 
+
     try:
+
 
 
         search_query = (
 
             f"{query} "
 
-            "مصر منهج وزارة التربية والتعليم"
+            "وزارة التربية والتعليم مصر"
 
         )
 
 
 
-        urls = []
+        urls=[]
+
 
 
 
@@ -365,17 +418,20 @@ def build_search_urls(query):
 
 
 
-            for result in results:
+            for item in results:
 
 
-                url = result.get(
+
+                url=item.get(
 
                     "href"
 
                 )
 
 
+
                 if url and valid_url(url):
+
 
                     urls.append(url)
 
@@ -385,7 +441,7 @@ def build_search_urls(query):
 
         logger.info(
 
-            f"Found {len(urls)} URLs"
+            f"URLs found: {len(urls)}"
 
         )
 
@@ -402,12 +458,14 @@ def build_search_urls(query):
 
         logger.error(
 
-            f"DDGS error: {e}"
+            f"Search failed: {e}"
 
         )
 
 
         return []
+
+
 
 
 
@@ -423,15 +481,17 @@ def build_search_urls(query):
 async def async_scrape_for_query(meta):
 
 
+
     query = meta.search_query
 
 
 
     logger.info(
 
-        f"Searching: {query}"
+        f"Scraping query: {query}"
 
     )
+
 
 
 
@@ -445,7 +505,17 @@ async def async_scrape_for_query(meta):
 
 
 
-    documents = []
+
+    if not urls:
+
+
+        return []
+
+
+
+
+
+    documents=[]
 
 
 
@@ -456,20 +526,13 @@ async def async_scrape_for_query(meta):
 
             "User-Agent":
 
-            (
-
-                "Mozilla/5.0 "
-
-                "(Windows NT 10.0; Win64; x64)"
-
-            )
+            "Mozilla/5.0"
 
         },
 
         follow_redirects=True
 
     ) as client:
-
 
 
 
@@ -487,9 +550,12 @@ async def async_scrape_for_query(meta):
 
                 for url in urls
 
-            ]
+            ],
+
+            return_exceptions=True
 
         )
+
 
 
 
@@ -510,12 +576,26 @@ async def async_scrape_for_query(meta):
 
 
 
+            if isinstance(
+
+                content,
+
+                Exception
+
+            ):
+
+                continue
+
+
+
+
 
             doc_id = hashlib.md5(
 
                 url.encode()
 
             ).hexdigest()
+
 
 
 
@@ -534,7 +614,7 @@ async def async_scrape_for_query(meta):
 
                     metadata={
 
-                        "query": query
+                        "query":query
 
                     }
 
@@ -548,7 +628,7 @@ async def async_scrape_for_query(meta):
 
     logger.info(
 
-        f"Collected {len(documents)} documents"
+        f"Documents collected: {len(documents)}"
 
     )
 
