@@ -57,3 +57,8 @@ torchaudio
 # Testing
 pytest
 pytest-asyncio
+
+
+# Async & Caching
+nest-asyncio
+cachetools

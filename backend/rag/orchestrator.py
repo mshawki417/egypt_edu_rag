@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 
 from loguru import logger
+from cachetools import TTLCache
 
 
 from backend.scraper.query_analyzer import (
@@ -34,15 +35,25 @@ from backend.retrieval.retriever import (
 
 from backend.rag.chain import (
     generate_answer_async,
+    stream_answer_async,
     RAGAnswer
 )
 
 
-from config.settings import retrieval_cfg
+from config.settings import retrieval_cfg, reranker_cfg
 
 
 
-PIPELINE_CACHE = {}
+PIPELINE_CACHE = TTLCache(maxsize=1000, ttl=3600)
+
+_reranker_model = None
+
+def get_reranker():
+    global _reranker_model
+    if _reranker_model is None:
+        from sentence_transformers import CrossEncoder
+        _reranker_model = CrossEncoder(reranker_cfg.model)
+    return _reranker_model
 
 
 
@@ -70,7 +81,9 @@ async def run_rag_pipeline_async(
 
     retriever_strategy:RetrieverType="hybrid",
 
-    status_callback=None
+    status_callback=None,
+
+    stream=False
 
 ):
 
@@ -171,9 +184,24 @@ async def run_rag_pipeline_async(
 
         question,
 
-        retrieval_cfg.top_k_rerank
+        retrieval_cfg.top_k_retrieve
 
     )
+
+
+    if reranker_cfg.enabled and retrieved:
+        update_status(status_callback, "Reranking documents")
+        reranker = get_reranker()
+        pairs = [[question, item.chunk.text] for item in retrieved]
+        scores = reranker.predict(pairs)
+        
+        for item, score in zip(retrieved, scores):
+            item.score = float(score)
+            
+        retrieved.sort(key=lambda x: x.score, reverse=True)
+        retrieved = retrieved[:reranker_cfg.top_k]
+    else:
+        retrieved = retrieved[:reranker_cfg.top_k]
 
 
 
@@ -183,6 +211,9 @@ async def run_rag_pipeline_async(
     )
 
 
+
+    if stream:
+        return stream_answer_async(question, retrieved)
 
     return await generate_answer_async(
 
@@ -218,7 +249,9 @@ def run_rag_pipeline(
 
             retriever_strategy,
 
-            status_callback
+            status_callback,
+
+            stream=stream
 
         )
 

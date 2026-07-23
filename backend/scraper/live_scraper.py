@@ -18,6 +18,12 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+from cachetools import TTLCache
+
+import fitz
+
+from duckduckgo_search import DDGS
+
 
 
 # ==========================
@@ -49,7 +55,7 @@ class RawDocument:
 # Cache
 # ==========================
 
-SCRAPER_CACHE = {}
+SCRAPER_CACHE = TTLCache(maxsize=1000, ttl=3600)
 
 
 REQUEST_LIMIT = asyncio.Semaphore(5)
@@ -107,7 +113,11 @@ async def fetch_url(
             if "pdf" in content_type:
 
 
-                data = response.text
+                doc = fitz.open(stream=response.content, filetype="pdf")
+                data = ""
+                for page in doc:
+                    data += page.get_text()
+                doc.close()
 
 
 
@@ -163,17 +173,14 @@ async def fetch_url(
 def build_search_urls(query):
 
 
-    from urllib.parse import quote
-
-
-    q = quote(query)
-
-
-    return [
-
-        f"https://duckduckgo.com/html/?q={q}"
-
-    ]
+    logger.info(f"DDG Search for: {query}")
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+            return [res['href'] for res in results if 'href' in res]
+    except Exception as e:
+        logger.error(f"DDGS error: {e}")
+        return []
 
 
 

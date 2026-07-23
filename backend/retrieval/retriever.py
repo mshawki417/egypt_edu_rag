@@ -443,6 +443,14 @@ class HybridRetriever:
 
 
 
+        bm_scores = [item.score for item in bm_results]
+        bm_min, bm_max = min(bm_scores, default=0), max(bm_scores, default=1)
+        if bm_max == bm_min: bm_max = bm_min + 1
+
+        dense_scores = [item.score for item in dense_results]
+        dense_min, dense_max = min(dense_scores, default=0), max(dense_scores, default=1)
+        if dense_max == dense_min: dense_max = dense_min + 1
+
         scores = {}
 
         mapping = {}
@@ -454,6 +462,7 @@ class HybridRetriever:
 
 
             cid = item.chunk.chunk_id
+            norm_score = (item.score - bm_min) / (bm_max - bm_min)
 
 
             scores[cid] = scores.get(
@@ -468,7 +477,7 @@ class HybridRetriever:
 
                 *
 
-                item.score
+                norm_score
 
             )
 
@@ -482,6 +491,7 @@ class HybridRetriever:
 
 
             cid = item.chunk.chunk_id
+            norm_score = (item.score - dense_min) / (dense_max - dense_min)
 
 
             scores[cid] = scores.get(
@@ -496,7 +506,7 @@ class HybridRetriever:
 
                 *
 
-                item.score
+                norm_score
 
             )
 

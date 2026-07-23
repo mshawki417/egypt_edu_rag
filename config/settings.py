@@ -259,15 +259,10 @@ class RerankerConfig(BaseModel):
 class LLMConfig(BaseModel):
 
 
-    openrouter_api_key:str=""
+    openrouter_api_key:str=Field(default_factory=lambda: get_secret("OPENROUTER_API_KEY", ""))
 
 
-    model:str=(
-
-        "mistralai/"
-        "mistral-7b-instruct:free"
-
-    )
+    model:str=Field(default_factory=lambda: get_secret("LLM_MODEL", "google/gemma-4-31b-it:free"))
 
 
     max_tokens:int=1200
@@ -279,35 +274,7 @@ class LLMConfig(BaseModel):
     timeout:int=90
 
 
-
     streaming:bool=True
-
-
-
-    def __init__(self,**data):
-
-
-        super().__init__(
-            **data
-        )
-
-
-        self.openrouter_api_key=get_secret(
-
-            "OPENROUTER_API_KEY",
-
-            ""
-
-        )
-
-
-        self.model=get_secret(
-
-            "LLM_MODEL",
-
-            self.model
-
-        )
 
 
 
