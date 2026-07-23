@@ -1,6 +1,6 @@
 """
-Advanced Arabic Text Cleaner
-Optimized for Real-Time RAG
+Production Arabic Document Cleaner
+Optimized for Education RAG
 """
 
 
@@ -8,27 +8,19 @@ from __future__ import annotations
 
 
 import re
+import hashlib
 import unicodedata
 
 
 
-# ==========================
-# Regex
-# ==========================
+
+# =========================
+# Patterns
+# =========================
 
 
-ALEF_VARIANTS = re.compile(
-    r"[أإآٱ]"
-)
-
-
-DIACRITICS = re.compile(
-    r"[\u064B-\u065F\u0670]"
-)
-
-
-HTML_TAGS = re.compile(
-    r"<[^>]+>"
+ARABIC_LETTERS = re.compile(
+    r"[\u0600-\u06FF]"
 )
 
 
@@ -42,144 +34,62 @@ EMAIL_PATTERN = re.compile(
 )
 
 
-MULTI_SPACE = re.compile(
+HTML_PATTERN = re.compile(
+    r"<[^>]+>"
+)
+
+
+SPACES_PATTERN = re.compile(
     r"[ \t]+"
 )
 
 
-MULTI_NEWLINE = re.compile(
+NEWLINE_PATTERN = re.compile(
     r"\n{3,}"
 )
 
 
-PAGE_MARKERS = re.compile(
-    r"\[صفحة\s*\d+\]"
-)
 
+NOISE = [
 
+    "الرئيسية",
 
-# Common web noise
+    "تسجيل الدخول",
 
-NOISE_PATTERNS=[
+    "اشترك",
 
+    "تابعنا",
 
-    r"اقرا المزيد",
+    "اعلان",
 
+    "إعلان",
 
-    r"اقرأ المزيد",
+    "اقرأ المزيد",
 
+    "اضغط هنا",
 
-    r"اضغط هنا",
+    "التالي",
 
+    "السابق",
 
-    r"تسجيل الدخول",
+    "سياسة الخصوصية",
 
+    "جميع الحقوق محفوظة",
 
-    r"حقوق النشر",
-
-
-    r"جميع الحقوق محفوظة",
-
-
-    r"سياسة الخصوصية",
+    "حقوق النشر",
 
 ]
 
 
 
 
-
-# ==========================
-# Arabic Normalize
-# ==========================
-
-
-def normalize_arabic(
-    text:str
-):
+# =========================
+# Normalize Arabic
+# =========================
 
 
-    text = unicodedata.normalize(
-        "NFC",
-        text
-    )
+def normalize_arabic(text):
 
-
-    # unify alef
-
-    text = ALEF_VARIANTS.sub(
-        "ا",
-        text
-    )
-
-
-    # remove tashkeel
-
-    text = DIACRITICS.sub(
-        "",
-        text
-    )
-
-
-    return text
-
-
-
-
-
-# ==========================
-# Remove Noise
-# ==========================
-
-
-def remove_noise(
-    text:str
-):
-
-
-    for pattern in NOISE_PATTERNS:
-
-
-        text=re.sub(
-
-            pattern,
-
-            " ",
-
-            text,
-
-            flags=re.IGNORECASE
-
-        )
-
-
-    return text
-
-
-
-
-
-# ==========================
-# Main Cleaner
-# ==========================
-
-
-def clean_text(
-
-    text:str,
-
-    normalize=True
-
-):
-
-
-    if not text:
-
-        return ""
-
-
-
-    # Unicode
 
     text=unicodedata.normalize(
         "NFC",
@@ -187,97 +97,209 @@ def clean_text(
     )
 
 
+    replacements={
 
-    # HTML
+        "أ":"ا",
+        "إ":"ا",
+        "آ":"ا",
+        "ٱ":"ا",
+        "ى":"ي",
+        "ؤ":"و",
+        "ئ":"ي"
 
-    text=HTML_TAGS.sub(
-        " ",
-        text
-    )
-
-
-
-    # URLs
-
-    text=URL_PATTERN.sub(
-        " ",
-        text
-    )
+    }
 
 
+    for a,b in replacements.items():
 
-    # Emails
-
-    text=EMAIL_PATTERN.sub(
-        " ",
-        text
-    )
-
-
-
-    # PDF pages
-
-    text=PAGE_MARKERS.sub(
-        "",
-        text
-    )
-
-
-
-    # Noise
-
-    text=remove_noise(
-        text
-    )
-
-
-
-    if normalize:
-
-        text=normalize_arabic(
-            text
+        text=text.replace(
+            a,
+            b
         )
 
 
+    # remove tashkeel
 
-    # Spaces
+    text=re.sub(
 
-    text=MULTI_SPACE.sub(
-        " ",
+        r"[\u064B-\u065F]",
+
+        "",
+
         text
+
     )
 
 
-    text=MULTI_NEWLINE.sub(
-        "\n\n",
-        text
-    )
-
-
-
-    return text.strip()
+    return text
 
 
 
 
 
-# ==========================
-# Arabic Ratio
-# ==========================
+# =========================
+# Remove Noise
+# =========================
 
 
-def is_arabic_heavy(
-
-    text:str,
-
-    threshold:float=0.15
-
-):
+def remove_noise(text):
 
 
-    if not text:
+    lines=[]
 
-        return False
+
+    for line in text.splitlines():
+
+
+        line=line.strip()
+
+
+        if not line:
+
+            continue
+
+
+
+        skip=False
+
+
+        for word in NOISE:
+
+            if word.lower() in line.lower():
+
+                skip=True
+
+                break
+
+
+
+        if not skip:
+
+            lines.append(line)
+
+
+
+    return "\n".join(lines)
+
+
+
+
+
+
+# =========================
+# Duplicate Removal
+# =========================
+
+
+def remove_duplicates(text):
+
+
+    seen=set()
+
+    result=[]
+
+
+    for line in text.splitlines():
+
+
+        key=line.strip()
+
+
+        if not key:
+
+            continue
+
+
+
+        if key in seen:
+
+            continue
+
+
+
+        seen.add(key)
+
+        result.append(key)
+
+
+
+    return "\n".join(result)
+
+
+
+
+
+
+# =========================
+# Similarity Filter
+# =========================
+
+
+def remove_repeated_blocks(text):
+
+
+    paragraphs=text.split("\n\n")
+
+
+    seen=set()
+
+    output=[]
+
+
+
+    for p in paragraphs:
+
+
+        fingerprint=hashlib.md5(
+
+            p.encode()
+
+        ).hexdigest()
+
+
+
+        if fingerprint not in seen:
+
+            seen.add(fingerprint)
+
+            output.append(p)
+
+
+
+    return "\n\n".join(output)
+
+
+
+
+
+
+
+# =========================
+# Quality Score
+# =========================
+
+
+def quality_score(text):
+
+
+    score=0
+
+
+
+    length=len(text)
+
+
+
+    if length>500:
+
+        score+=0.3
+
+
+
+    if length>1500:
+
+        score+=0.2
+
 
 
 
@@ -293,109 +315,133 @@ def is_arabic_heavy(
 
 
 
-    return (
-
-        arabic /
-        len(text)
-
-    ) >= threshold
+    ratio=arabic/max(
+        length,
+        1
+    )
 
 
+    if ratio>0.3:
 
-
-
-# ==========================
-# Extract Arabic Content
-# ==========================
-
-
-def extract_arabic_sections(
-
-    text:str,
-
-    min_len:int=40
-
-):
-
-
-    result=[]
+        score+=0.3
 
 
 
-    for line in text.splitlines():
+    if any(
 
+        x in text
 
-        line=line.strip()
+        for x in [
 
+            "درس",
 
-        if len(line)<min_len:
+            "منهج",
 
-            continue
+            "وزارة التربية",
 
+            "الصف"
 
+        ]
 
-        ratio=sum(
+    ):
 
-            1
-
-            for c in line
-
-            if "\u0600" <= c <= "\u06FF"
-
-        ) / max(
-            len(line),
-            1
-        )
+        score+=0.2
 
 
 
-        if ratio >=0.20:
-
-            result.append(
-                line
-            )
-
-
-
-    return "\n\n".join(
-        result
+    return round(
+        score,
+        2
     )
 
 
 
 
 
-# ==========================
-# Deduplicate
-# ==========================
+
+# =========================
+# Main Cleaner
+# =========================
 
 
-def remove_duplicate_lines(
-
-    text:str
-
-):
+def clean_document(text):
 
 
-    seen=set()
+    if not text:
 
-    output=[]
+        return {
 
+            "content":"",
 
-    for line in text.splitlines():
+            "quality":0
 
-
-        clean=line.strip()
-
-
-        if clean and clean not in seen:
-
-            seen.add(clean)
-
-            output.append(clean)
+        }
 
 
 
-    return "\n".join(
-        output
+    text=HTML_PATTERN.sub(
+        " ",
+        text
     )
+
+
+    text=URL_PATTERN.sub(
+        " ",
+        text
+    )
+
+
+    text=EMAIL_PATTERN.sub(
+        " ",
+        text
+    )
+
+
+
+    text=normalize_arabic(
+        text
+    )
+
+
+    text=remove_noise(
+        text
+    )
+
+
+    text=remove_duplicates(
+        text
+    )
+
+
+    text=remove_repeated_blocks(
+        text
+    )
+
+
+
+    text=SPACES_PATTERN.sub(
+        " ",
+        text
+    )
+
+
+    text=NEWLINE_PATTERN.sub(
+        "\n\n",
+        text
+    )
+
+
+
+    score=quality_score(
+        text
+    )
+
+
+
+    return {
+
+        "content":text.strip(),
+
+        "quality":score
+
+    }
