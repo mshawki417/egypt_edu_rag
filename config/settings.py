@@ -174,12 +174,12 @@ class RetrievalConfig(BaseModel):
 
     # Retrieval
 
-    top_k_retrieve: int = 12
+    top_k_retrieve: int = 20
 
+    
+    top_k_rerank: int = 5
 
-    top_k_rerank: int = 4
-
-
+    top_k: int = 3
 
     # Chunking
 
