@@ -1,10 +1,9 @@
 """
 Production Hybrid Retriever
-FAISS + BM25 + Persistent Cache
+FAISS + BM25 + Safe Runtime Cache
 """
 
 from __future__ import annotations
-
 
 import re
 
@@ -40,6 +39,8 @@ class RetrievedChunk:
 
 
 
+
+
 # =============================
 # Embedding Model Cache
 # =============================
@@ -64,13 +65,13 @@ def get_embedding_model():
 
 
         _embedding_model = SentenceTransformer(
-
             retrieval_cfg.embedding_model
-
         )
 
 
     return _embedding_model
+
+
 
 
 
@@ -83,19 +84,14 @@ def tokenize(text):
 
     text = text.lower()
 
-
     text = re.sub(
-
         r"[^\w\s]",
-
         " ",
-
         text
-
     )
 
-
     return text.split()
+
 
 
 
@@ -109,7 +105,7 @@ class BM25Retriever:
 
     def __init__(self):
 
-        self.chunks = []
+        self.chunks = None
 
         self.model = None
 
@@ -121,16 +117,17 @@ class BM25Retriever:
         from rank_bm25 import BM25Okapi
 
 
-        self.chunks = chunks
+        # Always replace old index
+        self.chunks = list(chunks)
 
 
         corpus = [
 
             tokenize(
-                c.text
+                chunk.text
             )
 
-            for c in chunks
+            for chunk in self.chunks
 
         ]
 
@@ -141,10 +138,9 @@ class BM25Retriever:
 
 
         logger.info(
-
-            f"BM25 indexed {len(chunks)} chunks"
-
+            f"BM25 indexed {len(self.chunks)} chunks"
         )
+
 
 
 
@@ -152,7 +148,7 @@ class BM25Retriever:
     def search(self, query, top_k):
 
 
-        if self.model is None:
+        if not self.model:
 
             return []
 
@@ -165,11 +161,8 @@ class BM25Retriever:
         )
 
 
-
         ids = np.argsort(
-
             scores
-
         )[::-1][:top_k]
 
 
@@ -177,10 +170,11 @@ class BM25Retriever:
         results = []
 
 
-        for i in ids:
+
+        for idx in ids:
 
 
-            if scores[i] <= 0:
+            if scores[idx] <= 0:
 
                 continue
 
@@ -190,10 +184,10 @@ class BM25Retriever:
 
                 RetrievedChunk(
 
-                    chunk=self.chunks[i],
+                    chunk=self.chunks[idx],
 
                     score=float(
-                        scores[i]
+                        scores[idx]
                     ),
 
                     retriever="bm25"
@@ -208,6 +202,8 @@ class BM25Retriever:
 
 
 
+
+
 # =============================
 # Dense FAISS Retriever
 # =============================
@@ -215,10 +211,9 @@ class BM25Retriever:
 class DenseRetriever:
 
 
-
     def __init__(self):
 
-        self.chunks = []
+        self.chunks = None
 
         self.faiss_index = None
 
@@ -227,34 +222,28 @@ class DenseRetriever:
 
 
 
-    # compatibility with orchestrator
-
     def index(self, chunks):
 
-        self.index_chunks(
-            chunks
-        )
+        self.chunks = list(chunks)
+
+        self._build_index()
 
 
 
 
-    def index_chunks(self, chunks):
+
+    def _build_index(self):
 
         import faiss
-
-
-        self.chunks = chunks
-
 
 
         texts = [
 
             c.text
 
-            for c in chunks
+            for c in self.chunks
 
         ]
-
 
 
         embeddings = self.model.encode(
@@ -270,11 +259,8 @@ class DenseRetriever:
         )
 
 
-
         embeddings = embeddings.astype(
-
             "float32"
-
         )
 
 
@@ -282,28 +268,21 @@ class DenseRetriever:
         dimension = embeddings.shape[1]
 
 
-
+        # Create fresh FAISS index
         self.faiss_index = faiss.IndexFlatIP(
-
             dimension
-
         )
-
 
 
         self.faiss_index.add(
-
             embeddings
-
         )
-
 
 
         logger.info(
-
-            f"FAISS indexed {len(chunks)} chunks"
-
+            f"FAISS indexed {len(self.chunks)} chunks"
         )
+
 
 
 
@@ -326,11 +305,8 @@ class DenseRetriever:
         )
 
 
-
         embedding = embedding.astype(
-
             "float32"
-
         )
 
 
@@ -379,8 +355,9 @@ class DenseRetriever:
             )
 
 
-
         return results
+
+
 
 
 
@@ -392,12 +369,14 @@ class DenseRetriever:
 class HybridRetriever:
 
 
-
     def __init__(self):
 
         self.bm25 = BM25Retriever()
 
         self.dense = DenseRetriever()
+
+        self.chunks = None
+
 
 
 
@@ -405,18 +384,20 @@ class HybridRetriever:
     def index(self, chunks):
 
 
+        # reset state every query
+
+        self.chunks = list(chunks)
+
+
         self.bm25.index(
-
-            chunks
-
+            self.chunks
         )
 
 
         self.dense.index(
-
-            chunks
-
+            self.chunks
         )
+
 
 
 
@@ -443,17 +424,66 @@ class HybridRetriever:
 
 
 
-        bm_scores = [item.score for item in bm_results]
-        bm_min, bm_max = min(bm_scores, default=0), max(bm_scores, default=1)
-        if bm_max == bm_min: bm_max = bm_min + 1
-
-        dense_scores = [item.score for item in dense_results]
-        dense_min, dense_max = min(dense_scores, default=0), max(dense_scores, default=1)
-        if dense_max == dense_min: dense_max = dense_min + 1
-
         scores = {}
 
         mapping = {}
+
+
+
+        bm_scores = [
+
+            x.score
+
+            for x in bm_results
+
+        ]
+
+
+        dense_scores = [
+
+            x.score
+
+            for x in dense_results
+
+        ]
+
+
+
+        bm_min = min(
+            bm_scores,
+            default=0
+        )
+
+
+        bm_max = max(
+            bm_scores,
+            default=1
+        )
+
+
+        dense_min = min(
+            dense_scores,
+            default=0
+        )
+
+
+        dense_max = max(
+            dense_scores,
+            default=1
+        )
+
+
+
+        if bm_max == bm_min:
+
+            bm_max += 1
+
+
+
+        if dense_max == dense_min:
+
+            dense_max += 1
+
 
 
 
@@ -462,27 +492,37 @@ class HybridRetriever:
 
 
             cid = item.chunk.chunk_id
-            norm_score = (item.score - bm_min) / (bm_max - bm_min)
 
 
-            scores[cid] = scores.get(
+            normalized = (
 
-                cid,
+                item.score - bm_min
 
-                0
+            ) / (
 
-            ) + (
+                bm_max - bm_min
+
+            )
+
+
+            scores[cid] = (
+
+                scores.get(cid,0)
+
+                +
 
                 retrieval_cfg.bm25_weight
 
                 *
 
-                norm_score
+                normalized
 
             )
 
 
             mapping[cid] = item.chunk
+
+
 
 
 
@@ -491,22 +531,30 @@ class HybridRetriever:
 
 
             cid = item.chunk.chunk_id
-            norm_score = (item.score - dense_min) / (dense_max - dense_min)
 
 
-            scores[cid] = scores.get(
+            normalized = (
 
-                cid,
+                item.score - dense_min
 
-                0
+            ) / (
 
-            ) + (
+                dense_max - dense_min
+
+            )
+
+
+            scores[cid] = (
+
+                scores.get(cid,0)
+
+                +
 
                 (1 - retrieval_cfg.bm25_weight)
 
                 *
 
-                norm_score
+                normalized
 
             )
 
@@ -516,16 +564,16 @@ class HybridRetriever:
 
 
 
+
         ranked = sorted(
 
             scores.items(),
 
-            key=lambda x: x[1],
+            key=lambda x:x[1],
 
             reverse=True
 
         )[:top_k]
-
 
 
 
@@ -541,9 +589,12 @@ class HybridRetriever:
 
             )
 
-            for cid, score in ranked
+            for cid,score in ranked
 
         ]
+
+
+
 
 
 
@@ -553,6 +604,11 @@ class HybridRetriever:
 # =============================
 
 def build_retriever(strategy="hybrid"):
+
+
+    logger.info(
+        f"Building new retriever: {strategy}"
+    )
 
 
     if strategy == "bm25":
