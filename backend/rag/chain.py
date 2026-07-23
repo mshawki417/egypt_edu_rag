@@ -8,11 +8,9 @@ from __future__ import annotations
 
 
 import asyncio
-
 import json
 
 from dataclasses import dataclass
-
 
 import httpx
 
@@ -26,10 +24,10 @@ from backend.retrieval.retriever import RetrievedChunk
 
 
 
+
 OPENROUTER_URL = (
     "https://openrouter.ai/api/v1/chat/completions"
 )
-
 
 
 MAX_RETRIES = 3
@@ -39,7 +37,7 @@ MAX_RETRIES = 3
 
 
 # =========================
-# Prompts
+# Prompt
 # =========================
 
 
@@ -63,7 +61,7 @@ BASE_PROMPT = """
 
 
 # =========================
-# Schema
+# Response Schema
 # =========================
 
 
@@ -87,7 +85,7 @@ class RAGAnswer:
 
 
 # =========================
-# Context
+# Context Builder
 # =========================
 
 
@@ -95,7 +93,7 @@ def build_context(
 
     chunks: list[RetrievedChunk],
 
-    max_chunks=5
+    max_chunks=4
 
 ):
 
@@ -104,7 +102,6 @@ def build_context(
 
 
     parts = []
-
 
 
     for idx, item in enumerate(
@@ -117,7 +114,6 @@ def build_context(
 
 
         chunk = item.chunk
-
 
 
         parts.append(
@@ -203,6 +199,7 @@ def headers():
 
 
 
+
 # =========================
 # Payload
 # =========================
@@ -219,12 +216,34 @@ def payload(
 ):
 
 
+    model_name = (
+
+        llm_cfg.model.strip()
+
+        if llm_cfg.model
+
+        else
+
+        "meta-llama/llama-3.1-8b-instruct:free"
+
+    )
+
+
+
+    logger.info(
+
+        f"OpenRouter model selected: {model_name}"
+
+    )
+
+
+
     return {
 
 
         "model":
 
-        llm_cfg.model,
+        model_name,
 
 
 
@@ -252,9 +271,11 @@ def payload(
 
             {
 
+
                 "role":
 
                 "system",
+
 
                 "content":
 
@@ -265,9 +286,11 @@ def payload(
 
             {
 
+
                 "role":
 
                 "user",
+
 
                 "content":
 
@@ -297,8 +320,10 @@ def payload(
 
 
 
+
+
 # =========================
-# OpenRouter Request
+# OpenRouter Call
 # =========================
 
 
@@ -343,68 +368,74 @@ async def call_openrouter(
 
 
 
-        if response.status_code != 429:
+        if response.status_code == 429:
 
 
-            response.raise_for_status()
+            retry_after = response.headers.get(
 
-            return response.json()
-
-
-
-
-        retry_after = response.headers.get(
-
-            "retry-after"
-
-        )
-
-
-
-        if retry_after:
-
-
-            wait_time = int(
-
-                retry_after
+                "retry-after"
 
             )
 
-
-        else:
 
 
             wait_time = (
 
-                5 *
+                int(retry_after)
 
-                (attempt + 1)
+                if retry_after
+
+                else
+
+                5 * (attempt + 1)
 
             )
 
 
 
-        logger.warning(
+            logger.warning(
 
-            f"OpenRouter rate limit 429. "
-            f"Retrying after {wait_time}s "
-            f"(attempt {attempt + 1}/{MAX_RETRIES})"
+                f"OpenRouter 429. Retry after {wait_time}s"
 
-        )
+            )
 
 
 
-        await asyncio.sleep(
+            await asyncio.sleep(
 
-            wait_time
+                wait_time
 
-        )
+            )
+
+
+            continue
+
+
+
+
+        if response.status_code >= 400:
+
+
+            logger.error(
+
+                f"OpenRouter error {response.status_code}: "
+                f"{response.text}"
+
+            )
+
+
+
+        response.raise_for_status()
+
+
+
+        return response.json()
 
 
 
     raise RuntimeError(
 
-        "OpenRouter unavailable after retries"
+        "OpenRouter request failed after retries"
 
     )
 
@@ -415,7 +446,7 @@ async def call_openrouter(
 
 
 # =========================
-# Generate
+# Generate Answer
 # =========================
 
 
@@ -447,9 +478,7 @@ async def generate_answer_async(
 
     context = build_context(
 
-        chunks,
-
-        max_chunks=4
+        chunks
 
     )
 
@@ -509,11 +538,9 @@ async def generate_answer_async(
 
         answer = (
 
-            "الخدمة غير متاحة حالياً، "
-            "يرجى المحاولة مرة أخرى."
+            "حدث خطأ أثناء الاتصال بالنموذج."
 
         )
-
 
 
 
@@ -527,6 +554,7 @@ async def generate_answer_async(
         sources=[
 
             {
+
 
                 "title":
 
@@ -596,11 +624,13 @@ async def stream_answer_async(
     )
 
 
+
     async with httpx.AsyncClient(
 
         timeout=120
 
     ) as client:
+
 
 
         async with client.stream(
@@ -625,29 +655,25 @@ async def stream_answer_async(
 
 
 
-            if response.status_code == 429:
+            if response.status_code >= 400:
 
 
-                logger.warning(
+                logger.error(
 
-                    "OpenRouter streaming rate limited"
+                    f"Streaming error: {response.text}"
 
                 )
 
 
                 yield (
 
-                    "الخدمة مشغولة حالياً، "
-                    "حاول مرة أخرى."
+                    "حدث خطأ أثناء توليد الإجابة."
 
                 )
 
+
                 return
 
-
-
-
-            response.raise_for_status()
 
 
 
