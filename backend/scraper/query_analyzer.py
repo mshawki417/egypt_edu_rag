@@ -12,216 +12,267 @@ from loguru import logger
 
 
 
+# =====================================
+# Grade Detection
+# =====================================
+
+
 GRADE_PATTERNS = {
 
-    r"(اول|الأول|1)\s*(ابتدائي|ابتدائى)":
+
+    # Primary
+    r"(اول|الأول|1|١)\s*(ابتدائي|ابتدائى|صف اول|الصف الاول)":
         "الأول الابتدائي",
 
-    r"(ثاني|الثاني|2)\s*(ابتدائي|ابتدائى)":
+    r"(ثاني|الثاني|2|٢)\s*(ابتدائي|ابتدائى|صف ثاني|الصف الثاني)":
         "الثاني الابتدائي",
 
-    r"(ثالث|الثالث|3)\s*(ابتدائي|ابتدائى)":
+    r"(ثالث|الثالث|3|٣)\s*(ابتدائي|ابتدائى|صف ثالث|الصف الثالث)":
         "الثالث الابتدائي",
 
-    r"(رابع|الرابع|4)\s*(ابتدائي|ابتدائى)":
+    r"(رابع|الرابع|4|٤)\s*(ابتدائي|ابتدائى|صف رابع|الصف الرابع)":
         "الرابع الابتدائي",
 
-    r"(خامس|الخامس|5)\s*(ابتدائي|ابتدائى)":
+    r"(خامس|الخامس|5|٥)\s*(ابتدائي|ابتدائى|صف خامس|الصف الخامس)":
         "الخامس الابتدائي",
 
-    r"(سادس|السادس|6)\s*(ابتدائي|ابتدائى)":
+    r"(سادس|السادس|6|٦)\s*(ابتدائي|ابتدائى|صف سادس|الصف السادس)":
         "السادس الابتدائي",
 
 
-    r"(اول|الأول|1)\s*(اعدادي|إعدادي)":
+
+    # Preparatory
+
+    r"(اول|الأول|1|١)\s*(اعدادي|إعدادي|الصف الاول)":
         "الأول الإعدادي",
 
-    r"(ثاني|الثاني|2)\s*(اعدادي|إعدادي)":
+    r"(ثاني|الثاني|2|٢)\s*(اعدادي|إعدادي|الصف الثاني)":
         "الثاني الإعدادي",
 
-    r"(ثالث|الثالث|3)\s*(اعدادي|إعدادي)":
+    r"(ثالث|الثالث|3|٣)\s*(اعدادي|إعدادي|الصف الثالث)":
         "الثالث الإعدادي",
 
 
-    r"(اول|الأول|1)\s*(ثانوي)":
+
+    # Secondary
+
+    r"(اول|الأول|1|١)\s*(ثانوي)":
         "الأول الثانوي",
 
-    r"(ثاني|الثاني|2)\s*(ثانوي)":
+    r"(ثاني|الثاني|2|٢)\s*(ثانوي)":
         "الثاني الثانوي",
 
-    r"(ثالث|الثالث|3)\s*(ثانوي)|الثانوية العامة":
+    r"(ثالث|الثالث|3|٣)\s*(ثانوي|الثانوية العامة)":
         "الثالث الثانوي"
 
 }
 
 
 
-SUBJECT_PATTERNS={
 
 
-"رياضيات":
-[
-"رياضيات",
-"حساب",
-"جبر",
-"هندسة",
-"تفاضل",
-"تكامل"
-],
+# =====================================
+# Subject Detection
+# =====================================
 
 
-"علوم":
-[
-"علوم",
-"science"
-],
+SUBJECT_PATTERNS = {
 
 
-"فيزياء":
-[
-"فيزياء",
-"physics"
-],
+    "رياضيات":
+    [
+        "رياضيات",
+        "حساب",
+        "جبر",
+        "هندسة",
+        "تفاضل",
+        "تكامل"
+    ],
 
 
-"كيمياء":
-[
-"كيمياء",
-"chemistry"
-],
+    "علوم":
+    [
+        "علوم",
+        "science"
+    ],
 
 
-"أحياء":
-[
-"احياء",
-"أحياء",
-"biology"
-],
+    "فيزياء":
+    [
+        "فيزياء",
+        "physics"
+    ],
 
 
-"لغة عربية":
-[
-"عربي",
-"لغة عربية",
-"نحو",
-"بلاغة"
-],
+    "كيمياء":
+    [
+        "كيمياء",
+        "chemistry"
+    ],
 
 
-"لغة إنجليزية":
-[
-"انجليزي",
-"english"
-],
+    "أحياء":
+    [
+        "احياء",
+        "أحياء",
+        "biology"
+    ],
 
 
-"تاريخ":
-[
-"تاريخ",
-"history"
-],
+    "لغة عربية":
+    [
+        "عربي",
+        "لغة عربية",
+        "نحو",
+        "بلاغة"
+    ],
 
 
-"دراسات اجتماعية":
-[
-"دراسات",
-"جغرافيا"
-]
+    "لغة إنجليزية":
+    [
+        "انجليزي",
+        "english"
+    ],
+
+
+    "تاريخ":
+    [
+        "تاريخ",
+        "history"
+    ],
+
+
+    "دراسات اجتماعية":
+    [
+        "دراسات",
+        "جغرافيا"
+    ]
+
+}
+
+
+
+
+
+# =====================================
+# Intent Detection
+# =====================================
+
+
+INTENTS = {
+
+
+    "exam":
+    [
+        "امتحان",
+        "اختبار",
+        "جدول",
+        "نتيجة",
+        "درجات",
+        "موعد"
+    ],
+
+
+
+    "news":
+    [
+        "قرار",
+        "تحديث",
+        "جديد",
+        "وزارة",
+        "خبر",
+        "اخر"
+    ],
+
+
+
+    "curriculum":
+    [
+        "منهج",
+        "كتاب",
+        "شرح",
+        "درس",
+        "وحدة",
+        "باب",
+        "مادة",
+        "محتوى",
+        "صف"
+    ]
 
 }
 
 
 
 
-INTENTS={
 
-
-"exam":
-[
-"امتحان",
-"اختبار",
-"جدول",
-"نتيجة",
-"درجات",
-"موعد"
-],
-
-
-"news":
-[
-"قرار",
-"تحديث",
-"جديد",
-"وزارة",
-"خبر"
-],
-
-
-"curriculum":
-[
-"منهج",
-"كتاب",
-"شرح",
-"درس",
-"وحدة"
-]
-
-}
-
-
+# =====================================
+# Metadata
+# =====================================
 
 
 @dataclass
 class QueryMetadata:
 
 
-    raw_question:str
+    raw_question: str
 
-    intent:str="curriculum"
+    intent: str = "curriculum"
 
-    grade:str|None=None
+    grade: str | None = None
 
-    subject:str|None=None
+    subject: str | None = None
 
-    search_query:str=""
+    search_query: str = ""
 
-    keywords:list[str]=field(default_factory=list)
+    keywords: list[str] = field(
+        default_factory=list
+    )
 
-    needs_live_search:bool=False
+    needs_live_search: bool = False
 
-    source_category:str="curriculum"
-
-
-
-
-
-def normalize_text(text):
+    source_category: str = "curriculum"
 
 
-    text=text.lower()
+
+
+
+
+
+# =====================================
+# Text Normalize
+# =====================================
+
+
+def normalize_text(text:str):
+
+
+    text = text.lower()
+
+
+
+    replacements = {
+
+        "أ":"ا",
+        "إ":"ا",
+        "آ":"ا",
+        "ة":"ه",
+        "ى":"ي"
+
+    }
+
+
+
+    for old,new in replacements.items():
+
+        text=text.replace(
+            old,
+            new
+        )
+
 
 
     text=re.sub(
-        r"[أإآ]",
-        "ا",
-        text
-    )
-
-
-    text=text.replace(
-        "ة",
-        "ه"
-    )
-
-
-    text=text.replace(
-        "ى",
-        "ي"
-    )
-
-
-    text=re.sub(
-        r"ـ",
+        r"[ـ]",
         "",
         text
     )
@@ -240,6 +291,13 @@ def normalize_text(text):
 
 
 
+
+
+# =====================================
+# Intent
+# =====================================
+
+
 def detect_intent(text):
 
 
@@ -248,72 +306,139 @@ def detect_intent(text):
 
     for intent,words in INTENTS.items():
 
-        score=sum(
-            1 for w in words
-            if w in text
+
+        scores[intent]=sum(
+
+            1
+
+            for word in words
+
+            if word in text
+
         )
 
-        scores[intent]=score
 
 
+    best=max(
 
-    return max(
         scores,
+
         key=scores.get
+
     )
 
 
+    # default education query
+
+    if scores[best]==0:
+
+        return "curriculum"
 
 
 
-def analyze_query(question):
+    return best
+
+
+
+
+
+
+
+# =====================================
+# Main Analyzer
+# =====================================
+
+
+def analyze_query(question:str):
 
 
     text=normalize_text(question)
 
 
+
     meta=QueryMetadata(
+
         raw_question=question
+
     )
 
 
 
+    # Grade
+
     for pattern,value in GRADE_PATTERNS.items():
 
-        if re.search(pattern,text):
+
+        if re.search(
+
+            pattern,
+
+            text
+
+        ):
+
 
             meta.grade=value
+
             break
 
 
+
+
+
+    # Subject
 
     for subject,words in SUBJECT_PATTERNS.items():
 
+
         if any(
-            w in text
-            for w in words
+
+            word in text
+
+            for word in words
+
         ):
 
+
             meta.subject=subject
+
             break
 
 
 
-    meta.intent=detect_intent(text)
 
 
+    # Intent
+
+    meta.intent=detect_intent(
+
+        text
+
+    )
+
+
+
+
+
+
+    # Live Search
 
     meta.needs_live_search=any(
 
-        x in text
+        word in text
 
-        for x in [
+        for word in [
 
             "اليوم",
+
             "الان",
+
             "اخر",
+
             "قرار",
+
             "2025",
+
             "2026"
 
         ]
@@ -322,15 +447,22 @@ def analyze_query(question):
 
 
 
+
+
     if meta.intent=="exam":
 
         meta.source_category="exams"
+
 
     elif meta.intent=="news":
 
         meta.source_category="news"
 
 
+
+
+
+    # Build Search Query
 
     query_parts=[
 
@@ -340,7 +472,7 @@ def analyze_query(question):
 
         meta.grade,
 
-        meta.term if hasattr(meta,"term") else None,
+        "وزارة التربية والتعليم",
 
         "منهج مصر"
 
@@ -350,20 +482,29 @@ def analyze_query(question):
 
     meta.search_query=" ".join(
 
-        x for x in query_parts
+        x
+
+        for x in query_parts
 
         if x
 
     )
 
 
+
+
+
     meta.keywords=[
 
-        x for x in [
+        x
+
+        for x in [
 
             meta.subject,
 
-            meta.grade
+            meta.grade,
+
+            meta.intent
 
         ]
 
@@ -372,9 +513,15 @@ def analyze_query(question):
     ]
 
 
+
+
+
     logger.info(
+
         f"Intent={meta.intent} | Subject={meta.subject} | Grade={meta.grade}"
+
     )
+
 
 
     return meta
