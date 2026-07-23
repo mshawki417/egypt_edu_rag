@@ -3,9 +3,7 @@ Production Arabic Document Cleaner
 Optimized for Education RAG
 """
 
-
 from __future__ import annotations
-
 
 import re
 import hashlib
@@ -13,15 +11,9 @@ import unicodedata
 
 
 
-
-# =========================
-# Patterns
-# =========================
-
-
-ARABIC_LETTERS = re.compile(
-    r"[\u0600-\u06FF]"
-)
+# =====================================================
+# Regex Patterns
+# =====================================================
 
 
 URL_PATTERN = re.compile(
@@ -39,90 +31,152 @@ HTML_PATTERN = re.compile(
 )
 
 
-SPACES_PATTERN = re.compile(
+MULTI_SPACE = re.compile(
     r"[ \t]+"
 )
 
 
-NEWLINE_PATTERN = re.compile(
+MULTI_NEWLINE = re.compile(
     r"\n{3,}"
 )
 
 
+PAGE_MARKER = re.compile(
+    r"\[?\s*صفحة\s*\d+\s*\]?"
+)
 
-NOISE = [
 
-    "الرئيسية",
+ARABIC_DIACRITICS = re.compile(
+    r"[\u064B-\u065F\u0670]"
+)
 
-    "تسجيل الدخول",
 
-    "اشترك",
 
-    "تابعنا",
+# =====================================================
+# Web Noise
+# =====================================================
 
-    "اعلان",
 
-    "إعلان",
+NOISE_PATTERNS = [
 
-    "اقرأ المزيد",
+    r"^الرئيسية$",
 
-    "اضغط هنا",
+    r"^تسجيل الدخول$",
 
-    "التالي",
+    r"^تابعنا$",
 
-    "السابق",
+    r"^اشترك$",
 
-    "سياسة الخصوصية",
+    r"^التالي$",
 
-    "جميع الحقوق محفوظة",
+    r"^السابق$",
 
-    "حقوق النشر",
+    r"^اقرأ المزيد$",
+
+    r"^اضغط هنا$",
+
+    r"^سياسة الخصوصية$",
+
+    r"^جميع الحقوق محفوظة$",
+
+    r"^حقوق النشر$",
+
+    r"^إعلان ممول$",
+
+    r"^اعلان ممول$",
 
 ]
 
 
 
 
-# =========================
-# Normalize Arabic
-# =========================
+
+# =====================================================
+# Educational Keywords
+# =====================================================
 
 
-def normalize_arabic(text):
+EDU_KEYWORDS = [
+
+    "درس",
+
+    "منهج",
+
+    "كتاب",
+
+    "الصف",
+
+    "الفصل",
+
+    "الترم",
+
+    "وزارة التربية",
+
+    "السؤال",
+
+    "الإجابة",
+
+    "شرح",
+
+]
 
 
-    text=unicodedata.normalize(
+
+
+
+# =====================================================
+# Arabic Normalize
+# =====================================================
+
+
+def normalize_arabic(text:str)->str:
+
+
+    text = unicodedata.normalize(
+
         "NFC",
+
         text
+
     )
 
 
-    replacements={
+
+    replacements = {
+
 
         "أ":"ا",
+
         "إ":"ا",
+
         "آ":"ا",
+
         "ٱ":"ا",
+
         "ى":"ي",
+
         "ؤ":"و",
-        "ئ":"ي"
+
+        "ئ":"ي",
+
 
     }
 
 
-    for a,b in replacements.items():
+
+    for old,new in replacements.items():
 
         text=text.replace(
-            a,
-            b
+
+            old,
+
+            new
+
         )
 
 
-    # remove tashkeel
 
-    text=re.sub(
-
-        r"[\u064B-\u065F]",
+    text = ARABIC_DIACRITICS.sub(
 
         "",
 
@@ -137,15 +191,16 @@ def normalize_arabic(text):
 
 
 
-# =========================
-# Remove Noise
-# =========================
+
+# =====================================================
+# Remove Web Noise
+# =====================================================
 
 
-def remove_noise(text):
+def remove_noise(text:str)->str:
 
 
-    lines=[]
+    output=[]
 
 
     for line in text.splitlines():
@@ -160,22 +215,66 @@ def remove_noise(text):
 
 
 
-        skip=False
+        remove=False
 
 
-        for word in NOISE:
 
-            if word.lower() in line.lower():
+        for pattern in NOISE_PATTERNS:
 
-                skip=True
+
+            if re.search(
+
+                pattern,
+
+                line,
+
+                flags=re.IGNORECASE
+
+            ):
+
+                remove=True
 
                 break
 
 
 
-        if not skip:
+        if not remove:
 
-            lines.append(line)
+            output.append(line)
+
+
+
+    return "\n".join(output)
+
+
+
+
+
+
+
+# =====================================================
+# Normalize Lines
+# =====================================================
+
+
+def normalize_lines(text:str)->str:
+
+
+    lines=[]
+
+
+    for line in text.splitlines():
+
+
+        line=line.strip()
+
+
+        if len(line)<3:
+
+            continue
+
+
+        lines.append(line)
 
 
 
@@ -186,12 +285,14 @@ def remove_noise(text):
 
 
 
-# =========================
-# Duplicate Removal
-# =========================
 
 
-def remove_duplicates(text):
+# =====================================================
+# Remove Duplicate Lines
+# =====================================================
+
+
+def remove_duplicates(text:str)->str:
 
 
     seen=set()
@@ -199,15 +300,11 @@ def remove_duplicates(text):
     result=[]
 
 
+
     for line in text.splitlines():
 
 
         key=line.strip()
-
-
-        if not key:
-
-            continue
 
 
 
@@ -230,12 +327,14 @@ def remove_duplicates(text):
 
 
 
-# =========================
-# Similarity Filter
-# =========================
 
 
-def remove_repeated_blocks(text):
+# =====================================================
+# Remove Duplicate Paragraphs
+# =====================================================
+
+
+def remove_repeated_blocks(text:str)->str:
 
 
     paragraphs=text.split("\n\n")
@@ -247,12 +346,25 @@ def remove_repeated_blocks(text):
 
 
 
-    for p in paragraphs:
+    for paragraph in paragraphs:
+
+
+        paragraph=paragraph.strip()
+
+
+        if not paragraph:
+
+            continue
+
 
 
         fingerprint=hashlib.md5(
 
-            p.encode()
+            paragraph.encode(
+
+                "utf-8"
+
+            )
 
         ).hexdigest()
 
@@ -260,9 +372,10 @@ def remove_repeated_blocks(text):
 
         if fingerprint not in seen:
 
+
             seen.add(fingerprint)
 
-            output.append(p)
+            output.append(paragraph)
 
 
 
@@ -274,12 +387,19 @@ def remove_repeated_blocks(text):
 
 
 
-# =========================
-# Quality Score
-# =========================
+
+# =====================================================
+# Quality Detection
+# =====================================================
 
 
-def quality_score(text):
+def quality_score(text:str)->float:
+
+
+    if not text:
+
+        return 0
+
 
 
     score=0
@@ -290,16 +410,99 @@ def quality_score(text):
 
 
 
+    # Size
+
     if length>500:
 
-        score+=0.3
-
+        score+=0.25
 
 
     if length>1500:
 
-        score+=0.2
+        score+=0.15
 
+
+
+    # Arabic Ratio
+
+    arabic=sum(
+
+        1
+
+        for c in text
+
+        if "\u0600" <= c <= "\u06FF"
+
+    )
+
+
+
+    ratio=arabic/max(
+
+        length,
+
+        1
+
+    )
+
+
+
+    if ratio>0.3:
+
+        score+=0.25
+
+
+
+    # Education relevance
+
+    matches=sum(
+
+        1
+
+        for word in EDU_KEYWORDS
+
+        if word in text
+
+    )
+
+
+
+    score+=min(
+
+        matches*0.05,
+
+        0.25
+
+    )
+
+
+
+    return round(
+
+        min(score,1),
+
+        2
+
+    )
+
+
+
+
+
+
+
+
+# =====================================================
+# Document Validation
+# =====================================================
+
+
+def is_valid_document(text:str)->bool:
+
+
+    if len(text)<80:
+
+        return False
 
 
 
@@ -316,132 +519,270 @@ def quality_score(text):
 
 
     ratio=arabic/max(
-        length,
+
+        len(text),
+
         1
+
     )
 
 
-    if ratio>0.3:
-
-        score+=0.3
-
-
-
-    if any(
-
-        x in text
-
-        for x in [
-
-            "درس",
-
-            "منهج",
-
-            "وزارة التربية",
-
-            "الصف"
-
-        ]
-
-    ):
-
-        score+=0.2
-
-
-
-    return round(
-        score,
-        2
-    )
+    return ratio>=0.15
 
 
 
 
 
 
-# =========================
+
+
+# =====================================================
+# Hash
+# =====================================================
+
+
+def document_hash(text:str)->str:
+
+
+    return hashlib.md5(
+
+        text.encode(
+
+            "utf-8"
+
+        )
+
+    ).hexdigest()
+
+
+
+
+
+
+
+
+# =====================================================
 # Main Cleaner
-# =========================
+# =====================================================
 
 
-def clean_document(text):
+def clean_document(text:str)->dict:
 
 
     if not text:
+
 
         return {
 
             "content":"",
 
-            "quality":0
+            "quality":0,
+
+            "hash":None
 
         }
 
 
 
+    # HTML
+
     text=HTML_PATTERN.sub(
+
         " ",
+
         text
+
     )
 
+
+
+    # URLs
 
     text=URL_PATTERN.sub(
+
         " ",
+
         text
+
     )
 
+
+
+    # Emails
 
     text=EMAIL_PATTERN.sub(
+
         " ",
+
         text
+
     )
 
 
+
+    # PDF pages
+
+    text=PAGE_MARKER.sub(
+
+        " ",
+
+        text
+
+    )
+
+
+
+    # Arabic normalize
 
     text=normalize_arabic(
+
         text
+
     )
 
+
+
+    # Noise
 
     text=remove_noise(
+
         text
+
     )
+
+
+
+    text=normalize_lines(
+
+        text
+
+    )
+
 
 
     text=remove_duplicates(
+
         text
+
     )
+
 
 
     text=remove_repeated_blocks(
+
         text
+
     )
 
 
 
-    text=SPACES_PATTERN.sub(
+    # Spaces
+
+    text=MULTI_SPACE.sub(
+
         " ",
+
         text
+
     )
 
 
-    text=NEWLINE_PATTERN.sub(
+    text=MULTI_NEWLINE.sub(
+
         "\n\n",
+
         text
+
     )
 
 
 
-    score=quality_score(
-        text
-    )
+    text=text.strip()
+
+
+
+    if not is_valid_document(text):
+
+
+        return {
+
+            "content":"",
+
+            "quality":0,
+
+            "hash":None
+
+        }
 
 
 
     return {
 
-        "content":text.strip(),
 
-        "quality":score
+        "content":text,
+
+
+        "quality":quality_score(text),
+
+
+        "hash":document_hash(text)
 
     }
+
+
+
+
+
+
+
+
+
+# =====================================================
+# Backward Compatibility
+# =====================================================
+
+
+def clean_text(
+
+    text:str,
+
+    normalize:bool=True
+
+)->str:
+
+
+    """
+    Compatibility function.
+
+    Used by old modules:
+    - chunker
+    - scraper
+    - preprocessing
+    """
+
+
+    result=clean_document(
+
+        text
+
+    )
+
+
+
+    content=result.get(
+
+        "content",
+
+        ""
+
+    )
+
+
+
+    if not normalize:
+
+        return content
+
+
+
+    return content.strip()
