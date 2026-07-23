@@ -5,10 +5,15 @@ Production RAG pipeline controller
 
 from __future__ import annotations
 
+
 import asyncio
 
+from threading import Lock
+
 from loguru import logger
+
 from cachetools import TTLCache
+
 
 
 from backend.scraper.query_analyzer import (
@@ -47,32 +52,138 @@ from config.settings import (
 
 
 
+
+
+# =====================================
+# Cache
+# =====================================
+
+
 PIPELINE_CACHE = TTLCache(
-    maxsize=1000,
-    ttl=3600
+
+    maxsize=100,
+
+    ttl=300
+
 )
+
+
+CACHE_LOCK = Lock()
+
+
+
+# =====================================
+# Models
+# =====================================
 
 
 _reranker_model = None
 
 
 
-# =============================
+_RETRIEVER_CACHE = {}
+
+
+
+
+
+# =====================================
+# Cache Utils
+# =====================================
+
+
+def cache_key(question: str):
+
+    return (
+
+        question
+
+        .strip()
+
+        .lower()
+
+    )
+
+
+
+
+
+def clear_pipeline_cache():
+
+    with CACHE_LOCK:
+
+        PIPELINE_CACHE.clear()
+
+
+    logger.info(
+
+        "Pipeline cache cleared"
+
+    )
+
+
+
+
+
+# =====================================
+# Retriever Manager
+# =====================================
+
+
+def get_retriever(
+
+    strategy: RetrieverType
+
+):
+
+
+    if strategy not in _RETRIEVER_CACHE:
+
+
+        logger.info(
+
+            f"Creating retriever: {strategy}"
+
+        )
+
+
+        _RETRIEVER_CACHE[strategy] = build_retriever(
+
+            strategy
+
+        )
+
+
+    return _RETRIEVER_CACHE[strategy]
+
+
+
+
+
+# =====================================
 # Reranker
-# =============================
+# =====================================
+
 
 def get_reranker():
+
 
     global _reranker_model
 
 
+
     if _reranker_model is None:
 
+
         logger.info(
+
             "Loading reranker model..."
+
         )
 
+
         from sentence_transformers import CrossEncoder
+
 
 
         _reranker_model = CrossEncoder(
@@ -84,9 +195,13 @@ def get_reranker():
         )
 
 
+
         logger.info(
-            "Reranker loaded successfully"
+
+            "Reranker loaded"
+
         )
+
 
 
     return _reranker_model
@@ -94,50 +209,63 @@ def get_reranker():
 
 
 
-# =============================
+
+
+# =====================================
 # Utils
-# =============================
-
-def cache_key(question):
-
-    return question.strip().lower()
+# =====================================
 
 
+def update_status(
+
+    callback,
+
+    message
+
+):
 
 
-def update_status(callback, msg):
-
-    logger.info(msg)
+    logger.info(message)
 
 
     if callback:
 
-        callback(msg)
+        callback(message)
 
 
 
 
 
-# =============================
-# Main Pipeline
-# =============================
+
+# =====================================
+# Main Async Pipeline
+# =====================================
+
 
 async def run_rag_pipeline_async(
 
+
     question: str,
+
 
     retriever_strategy: RetrieverType = "hybrid",
 
+
     status_callback=None,
 
+
     stream=False
+
 
 ):
 
 
     update_status(
+
         status_callback,
+
         "Analyzing query"
+
     )
 
 
@@ -158,10 +286,33 @@ async def run_rag_pipeline_async(
 
 
 
-    if key in PIPELINE_CACHE:
+    chunks = None
 
 
-        chunks = PIPELINE_CACHE[key]
+
+    # -----------------------------
+    # Get cached chunks
+    # -----------------------------
+
+
+    with CACHE_LOCK:
+
+        cached = PIPELINE_CACHE.get(key)
+
+
+
+    if cached:
+
+
+        logger.info(
+
+            "Using cached documents"
+
+        )
+
+
+        chunks = cached
+
 
 
     else:
@@ -174,6 +325,7 @@ async def run_rag_pipeline_async(
             "Live scraping"
 
         )
+
 
 
         docs = await async_scrape_for_query(
@@ -219,10 +371,18 @@ async def run_rag_pipeline_async(
 
 
 
-        PIPELINE_CACHE[key] = chunks
+        with CACHE_LOCK:
+
+
+            PIPELINE_CACHE[key] = chunks
 
 
 
+
+
+    # -----------------------------
+    # Retrieval
+    # -----------------------------
 
 
     update_status(
@@ -235,7 +395,7 @@ async def run_rag_pipeline_async(
 
 
 
-    retriever = build_retriever(
+    retriever = get_retriever(
 
         retriever_strategy
 
@@ -251,8 +411,6 @@ async def run_rag_pipeline_async(
 
 
 
-
-
     update_status(
 
         status_callback,
@@ -262,8 +420,6 @@ async def run_rag_pipeline_async(
     )
 
 
-    # Limit retrieval candidates
-    # before expensive reranking
 
     retrieval_limit = min(
 
@@ -272,6 +428,7 @@ async def run_rag_pipeline_async(
         15
 
     )
+
 
 
     retrieved = retriever.search(
@@ -286,11 +443,14 @@ async def run_rag_pipeline_async(
 
 
 
-    # =============================
+
+    # -----------------------------
     # Reranking
-    # =============================
+    # -----------------------------
+
 
     if reranker_cfg.enabled and retrieved:
+
 
 
         update_status(
@@ -345,6 +505,7 @@ async def run_rag_pipeline_async(
 
             ):
 
+
                 item.score = float(score)
 
 
@@ -369,7 +530,7 @@ async def run_rag_pipeline_async(
 
             logger.info(
 
-                f"Reranking completed. Final chunks: {len(retrieved)}"
+                f"Reranking completed: {len(retrieved)} chunks"
 
             )
 
@@ -383,6 +544,7 @@ async def run_rag_pipeline_async(
                 f"Reranking failed: {e}"
 
             )
+
 
 
             retrieved = retrieved[
@@ -406,6 +568,12 @@ async def run_rag_pipeline_async(
 
 
 
+
+    # -----------------------------
+    # Generation
+    # -----------------------------
+
+
     update_status(
 
         status_callback,
@@ -417,8 +585,8 @@ async def run_rag_pipeline_async(
 
 
 
-
     if stream:
+
 
         return stream_answer_async(
 
@@ -427,6 +595,7 @@ async def run_rag_pipeline_async(
             retrieved
 
         )
+
 
 
 
@@ -444,19 +613,26 @@ async def run_rag_pipeline_async(
 
 
 
-# =============================
+
+# =====================================
 # Sync Wrapper
-# =============================
+# =====================================
+
 
 def run_rag_pipeline(
 
+
     question,
+
 
     retriever_strategy="hybrid",
 
+
     stream=False,
 
+
     status_callback=None
+
 
 ):
 
@@ -481,9 +657,12 @@ def run_rag_pipeline(
 
 
 
-# =============================
+
+
+# =====================================
 # Metadata
-# =============================
+# =====================================
+
 
 def get_pipeline_metadata(question):
 
