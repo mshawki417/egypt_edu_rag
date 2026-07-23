@@ -32,7 +32,7 @@ load_dotenv(
 
 
 def get_secret(
-    key:str,
+    key: str,
     default=""
 ):
 
@@ -42,7 +42,7 @@ def get_secret(
         import streamlit as st
 
 
-        value=st.secrets.get(
+        value = st.secrets.get(
             key,
             None
         )
@@ -66,6 +66,15 @@ def get_secret(
 
 
 
+# HuggingFace Token
+# Loaded from Streamlit Secrets or .env
+
+HF_TOKEN = get_secret(
+    "HF_TOKEN",
+    ""
+)
+
+
 
 
 # ==========================
@@ -76,40 +85,39 @@ def get_secret(
 class ScraperConfig(BaseModel):
 
 
-    timeout:int = 15
+    timeout: int = 15
 
 
-    max_pages:int = 8
+    max_pages: int = 8
 
 
-    concurrent_requests:int = 10
+    concurrent_requests: int = 10
 
 
-    cache_ttl:int = 900
+    cache_ttl: int = 900
 
 
-    delay:float = 0.1
+    delay: float = 0.1
 
 
 
-    user_agent:str=(
+    user_agent: str = (
 
         "Mozilla/5.0 "
-
         "Education-RAG-Bot"
 
     )
 
 
 
-    ddg_max_results:int = 5
+    ddg_max_results: int = 5
 
 
 
-    sources:dict[str,list[str]]={
+    sources: dict[str, list[str]] = {
 
 
-        "curriculum":[
+        "curriculum": [
 
             "https://ar.wikipedia.org/wiki/التعليم_في_مصر",
 
@@ -118,7 +126,7 @@ class ScraperConfig(BaseModel):
         ],
 
 
-        "math":[
+        "math": [
 
             "https://ar.wikipedia.org/wiki/رياضيات",
 
@@ -127,32 +135,31 @@ class ScraperConfig(BaseModel):
         ],
 
 
-        "science":[
+        "science": [
 
             "https://ar.wikipedia.org/wiki/علوم",
 
             "https://ar.wikipedia.org/wiki/فيزياء",
 
-            "https://ar.wikipedia.org/wiki/كيمياء",
+            "https://ar.wikipedia.org/wiki/كيمياء"
 
         ],
 
 
-        "arabic":[
+        "arabic": [
 
             "https://ar.wikipedia.org/wiki/اللغة_العربية"
 
         ],
 
 
-        "history":[
+        "history": [
 
             "https://ar.wikipedia.org/wiki/تاريخ_مصر"
 
         ]
 
     }
-
 
 
 
@@ -167,48 +174,49 @@ class RetrievalConfig(BaseModel):
 
     # Retrieval
 
-    top_k_retrieve:int = 12
+    top_k_retrieve: int = 12
 
 
-    top_k_rerank:int = 4
+    top_k_rerank: int = 4
 
 
 
     # Chunking
 
-    chunk_size:int = 750
+    chunk_size: int = 750
 
 
-    chunk_overlap:int = 120
+    chunk_overlap: int = 120
 
 
 
     # Embedding
+    # Lightweight multilingual model
 
-    embedding_model:str=(
+    embedding_model: str = (
 
         "sentence-transformers/"
-        "paraphrase-multilingual-mpnet-base-v2"
+        "paraphrase-multilingual-MiniLM-L12-v2"
 
     )
 
 
-    embedding_batch_size:int = 64
+    embedding_batch_size: int = 64
 
 
 
     # Hybrid
 
-    bm25_weight:float = 0.35
+    bm25_weight: float = 0.35
 
 
-    dense_weight:float = 0.65
+    dense_weight: float = 0.65
 
 
 
     # Vector Store
 
-    vector_dir:Path = (
+    vector_dir: Path = (
 
         BASE_DIR /
         "data" /
@@ -217,10 +225,10 @@ class RetrievalConfig(BaseModel):
     )
 
 
-    faiss_file:str="index.faiss"
+    faiss_file: str = "index.faiss"
 
 
-    metadata_file:str="metadata.pkl"
+    metadata_file: str = "metadata.pkl"
 
 
 
@@ -234,18 +242,20 @@ class RetrievalConfig(BaseModel):
 class RerankerConfig(BaseModel):
 
 
-    enabled:bool=True
+    enabled: bool = True
 
 
-    model:str=(
+    # Lightweight Cross Encoder
 
-        "BAAI/"
-        "bge-reranker-v2-m3"
+    model: str = (
+
+        "cross-encoder/"
+        "ms-marco-MiniLM-L-6-v2"
 
     )
 
 
-    top_k:int=4
+    top_k: int = 4
 
 
 
@@ -259,22 +269,42 @@ class RerankerConfig(BaseModel):
 class LLMConfig(BaseModel):
 
 
-    openrouter_api_key:str=Field(default_factory=lambda: get_secret("OPENROUTER_API_KEY", ""))
+    openrouter_api_key: str = Field(
+
+        default_factory=lambda:
+
+        get_secret(
+            "OPENROUTER_API_KEY",
+            ""
+        )
+
+    )
 
 
-    model:str=Field(default_factory=lambda: get_secret("LLM_MODEL", "google/gemma-4-31b-it:free"))
+
+    model: str = Field(
+
+        default_factory=lambda:
+
+        get_secret(
+            "LLM_MODEL",
+            "google/gemma-4-31b-it:free"
+        )
+
+    )
 
 
-    max_tokens:int=1200
+
+    max_tokens: int = 1200
 
 
-    temperature:float=0.15
+    temperature: float = 0.15
 
 
-    timeout:int=90
+    timeout: int = 90
 
 
-    streaming:bool=True
+    streaming: bool = True
 
 
 
@@ -288,16 +318,16 @@ class LLMConfig(BaseModel):
 class CacheConfig(BaseModel):
 
 
-    enabled:bool=True
+    enabled: bool = True
 
 
-    query_cache_size:int=500
+    query_cache_size: int = 500
 
 
-    document_cache_size:int=1000
+    document_cache_size: int = 1000
 
 
-    ttl_seconds:int=900
+    ttl_seconds: int = 900
 
 
 
@@ -311,7 +341,7 @@ class CacheConfig(BaseModel):
 class AppConfig(BaseModel):
 
 
-    title:str=(
+    title: str = (
 
         "نظام الذكاء الاصطناعي "
         "للتعليم المصري"
@@ -319,20 +349,37 @@ class AppConfig(BaseModel):
     )
 
 
-    environment:str="production"
+    environment: str = "production"
 
 
-    log_level:str="INFO"
+    log_level: str = "INFO"
 
 
 
-    data_dir:Path=BASE_DIR/"data"
+    data_dir: Path = (
+
+        BASE_DIR /
+        "data"
+
+    )
 
 
-    raw_dir:Path=BASE_DIR/"data"/"raw"
+    raw_dir: Path = (
+
+        BASE_DIR /
+        "data" /
+        "raw"
+
+    )
 
 
-    processed_dir:Path=BASE_DIR/"data"/"processed"
+    processed_dir: Path = (
+
+        BASE_DIR /
+        "data" /
+        "processed"
+
+    )
 
 
 
@@ -343,26 +390,31 @@ class AppConfig(BaseModel):
 # ==========================
 
 
-scraper_cfg=ScraperConfig()
+scraper_cfg = ScraperConfig()
 
 
-retrieval_cfg=RetrievalConfig()
+retrieval_cfg = RetrievalConfig()
 
 
-reranker_cfg=RerankerConfig()
+reranker_cfg = RerankerConfig()
 
 
-cache_cfg=CacheConfig()
+cache_cfg = CacheConfig()
 
 
-llm_cfg=LLMConfig()
+llm_cfg = LLMConfig()
 
 
-app_cfg=AppConfig()
+app_cfg = AppConfig()
 
 
 
-# create folders
+
+
+# ==========================
+# Create folders
+# ==========================
+
 
 for path in [
 
@@ -375,6 +427,9 @@ for path in [
 ]:
 
     path.mkdir(
+
         parents=True,
+
         exist_ok=True
+
     )
