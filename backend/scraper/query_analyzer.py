@@ -1,279 +1,355 @@
 """
 Advanced Arabic Query Analyzer
-Production version for Real-Time RAG
+Production Education RAG Version
 """
 
 from __future__ import annotations
 
+
 import re
 
 from dataclasses import dataclass, field
+
 from loguru import logger
 
 
 
-# =====================================
-# Grade Detection
-# =====================================
+# ======================================================
+# Grade / Stage Detection
+# ======================================================
 
 
 GRADE_PATTERNS = {
 
 
     # Primary
-    r"(اول|الأول|1|١)\s*(ابتدائي|ابتدائى|صف اول|الصف الاول)":
+
+    r"(الصف\s*)?(الاول|اول|1|١)\s*(ابتدائي|ابتدائى)":
         "الأول الابتدائي",
 
-    r"(ثاني|الثاني|2|٢)\s*(ابتدائي|ابتدائى|صف ثاني|الصف الثاني)":
+
+    r"(الصف\s*)?(الثاني|ثاني|2|٢)\s*(ابتدائي|ابتدائى)":
         "الثاني الابتدائي",
 
-    r"(ثالث|الثالث|3|٣)\s*(ابتدائي|ابتدائى|صف ثالث|الصف الثالث)":
+
+    r"(الصف\s*)?(الثالث|ثالث|3|٣)\s*(ابتدائي|ابتدائى)":
         "الثالث الابتدائي",
 
-    r"(رابع|الرابع|4|٤)\s*(ابتدائي|ابتدائى|صف رابع|الصف الرابع)":
+
+    r"(الصف\s*)?(الرابع|رابع|4|٤)\s*(ابتدائي|ابتدائى)":
         "الرابع الابتدائي",
 
-    r"(خامس|الخامس|5|٥)\s*(ابتدائي|ابتدائى|صف خامس|الصف الخامس)":
+
+    r"(الصف\s*)?(الخامس|خامس|5|٥)\s*(ابتدائي|ابتدائى)":
         "الخامس الابتدائي",
 
-    r"(سادس|السادس|6|٦)\s*(ابتدائي|ابتدائى|صف سادس|الصف السادس)":
+
+    r"(الصف\s*)?(السادس|سادس|6|٦)\s*(ابتدائي|ابتدائى)":
         "السادس الابتدائي",
 
 
 
     # Preparatory
 
-    r"(اول|الأول|1|١)\s*(اعدادي|إعدادي|الصف الاول)":
+    r"(الصف\s*)?(الاول|اول|1|١)\s*(اعدادي|إعدادي)":
         "الأول الإعدادي",
 
-    r"(ثاني|الثاني|2|٢)\s*(اعدادي|إعدادي|الصف الثاني)":
+
+    r"(الصف\s*)?(الثاني|ثاني|2|٢)\s*(اعدادي|إعدادي)":
         "الثاني الإعدادي",
 
-    r"(ثالث|الثالث|3|٣)\s*(اعدادي|إعدادي|الصف الثالث)":
+
+    r"(الصف\s*)?(الثالث|ثالث|3|٣)\s*(اعدادي|إعدادي)":
         "الثالث الإعدادي",
 
 
 
     # Secondary
 
-    r"(اول|الأول|1|١)\s*(ثانوي)":
+    r"(الصف\s*)?(الاول|اول|1|١)\s*(ثانوي)":
         "الأول الثانوي",
 
-    r"(ثاني|الثاني|2|٢)\s*(ثانوي)":
+
+    r"(الصف\s*)?(الثاني|ثاني|2|٢)\s*(ثانوي)":
         "الثاني الثانوي",
 
-    r"(ثالث|الثالث|3|٣)\s*(ثانوي|الثانوية العامة)":
+
+    r"(الصف\s*)?(الثالث|ثالث|3|٣)\s*(ثانوي|ثانويه عامه)":
         "الثالث الثانوي"
 
-}
-
-
-
-
-
-# =====================================
-# Subject Detection
-# =====================================
-
-
-SUBJECT_PATTERNS = {
-
-
-    "رياضيات":
-    [
-        "رياضيات",
-        "حساب",
-        "جبر",
-        "هندسة",
-        "تفاضل",
-        "تكامل"
-    ],
-
-
-    "علوم":
-    [
-        "علوم",
-        "science"
-    ],
-
-
-    "فيزياء":
-    [
-        "فيزياء",
-        "physics"
-    ],
-
-
-    "كيمياء":
-    [
-        "كيمياء",
-        "chemistry"
-    ],
-
-
-    "أحياء":
-    [
-        "احياء",
-        "أحياء",
-        "biology"
-    ],
-
-
-    "لغة عربية":
-    [
-        "عربي",
-        "لغة عربية",
-        "نحو",
-        "بلاغة"
-    ],
-
-
-    "لغة إنجليزية":
-    [
-        "انجليزي",
-        "english"
-    ],
-
-
-    "تاريخ":
-    [
-        "تاريخ",
-        "history"
-    ],
-
-
-    "دراسات اجتماعية":
-    [
-        "دراسات",
-        "جغرافيا"
-    ]
 
 }
 
 
 
 
-
-# =====================================
-# Intent Detection
-# =====================================
-
-
-INTENTS = {
+# ======================================================
+# Semester Detection
+# ======================================================
 
 
-    "exam":
-    [
-        "امتحان",
-        "اختبار",
-        "جدول",
-        "نتيجة",
-        "درجات",
-        "موعد"
-    ],
+TERM_PATTERNS={
 
 
-
-    "news":
-    [
-        "قرار",
-        "تحديث",
-        "جديد",
-        "وزارة",
-        "خبر",
-        "اخر"
-    ],
+    r"(الترم الاول|الفصل الاول|ترم اول)":
+        "الترم الأول",
 
 
-
-    "curriculum":
-    [
-        "منهج",
-        "كتاب",
-        "شرح",
-        "درس",
-        "وحدة",
-        "باب",
-        "مادة",
-        "محتوى",
-        "صف"
-    ]
+    r"(الترم الثاني|الفصل الثاني|ترم ثاني)":
+        "الترم الثاني"
 
 }
 
 
 
 
+# ======================================================
+# Subjects
+# ======================================================
 
-# =====================================
+
+SUBJECT_PATTERNS={
+
+
+"رياضيات":
+[
+"رياضيات",
+"حساب",
+"جبر",
+"هندسه",
+"تفاضل",
+"تكامل"
+],
+
+
+
+"علوم":
+[
+"علوم",
+"science"
+],
+
+
+
+"فيزياء":
+[
+"فيزياء",
+"physics"
+],
+
+
+
+"كيمياء":
+[
+"كيمياء",
+"chemistry"
+],
+
+
+
+"احياء":
+[
+"احياء",
+"biology"
+],
+
+
+
+"لغة عربية":
+[
+"عربي",
+"لغة عربية",
+"نحو",
+"بلاغه"
+],
+
+
+
+"لغة انجليزية":
+[
+"انجليزي",
+"english"
+],
+
+
+
+"تاريخ":
+[
+"تاريخ",
+"history"
+],
+
+
+
+"دراسات اجتماعية":
+[
+"دراسات",
+"جغرافيا"
+]
+
+}
+
+
+
+
+# ======================================================
+# Intent
+# ======================================================
+
+
+INTENTS={
+
+
+
+"summary":
+[
+"لخص",
+"ملخص",
+"تلخيص",
+"الخلاصة"
+],
+
+
+
+"explanation":
+[
+"اشرح",
+"شرح",
+"وضح",
+"فسر"
+],
+
+
+
+"exercise":
+[
+"حل",
+"تمارين",
+"مسائل",
+"امثلة"
+],
+
+
+
+"exam":
+[
+"امتحان",
+"اختبار",
+"نتيجة",
+"درجات",
+"جدول"
+],
+
+
+
+"definition":
+[
+"من هو",
+"من صاحب",
+"ما هو",
+"عرف"
+],
+
+
+
+"news":
+[
+"قرار",
+"اخر",
+"جديد",
+"وزارة",
+"خبر"
+],
+
+
+
+"curriculum":
+[
+"منهج",
+"كتاب",
+"درس",
+"باب",
+"وحدة"
+]
+
+}
+
+
+
+
+# ======================================================
 # Metadata
-# =====================================
+# ======================================================
 
 
 @dataclass
 class QueryMetadata:
 
 
-    raw_question: str
+    raw_question:str
 
-    intent: str = "curriculum"
 
-    grade: str | None = None
+    intent:str="curriculum"
 
-    subject: str | None = None
 
-    search_query: str = ""
+    grade:str|None=None
 
-    keywords: list[str] = field(
+
+    subject:str|None=None
+
+
+    term:str|None=None
+
+
+    search_query:str=""
+
+
+    keywords:list[str]=field(
         default_factory=list
     )
 
-    needs_live_search: bool = False
 
-    source_category: str = "curriculum"
-
+    needs_live_search:bool=False
 
 
-
+    source_category:str="education"
 
 
 
-# =====================================
-# Text Normalize
-# =====================================
 
 
-def normalize_text(text:str):
+# ======================================================
+# Normalize
+# ======================================================
 
 
-    text = text.lower()
+def normalize_text(text):
+
+
+    text=text.lower()
 
 
 
-    replacements = {
+    replacements={
 
         "أ":"ا",
         "إ":"ا",
         "آ":"ا",
-        "ة":"ه",
         "ى":"ي"
 
     }
 
 
 
-    for old,new in replacements.items():
+    for a,b in replacements.items():
 
-        text=text.replace(
-            old,
-            new
-        )
+        text=text.replace(a,b)
 
 
 
     text=re.sub(
-        r"[ـ]",
-        "",
+        r"[^\w\s\u0600-\u06ff]",
+        " ",
         text
     )
 
@@ -291,11 +367,9 @@ def normalize_text(text:str):
 
 
 
-
-
-# =====================================
-# Intent
-# =====================================
+# ======================================================
+# Detect Intent
+# ======================================================
 
 
 def detect_intent(text):
@@ -304,22 +378,23 @@ def detect_intent(text):
     scores={}
 
 
-    for intent,words in INTENTS.items():
+
+    for name,words in INTENTS.items():
 
 
-        scores[intent]=sum(
+        scores[name]=sum(
 
             1
 
-            for word in words
+            for w in words
 
-            if word in text
+            if w in text
 
         )
 
 
 
-    best=max(
+    result=max(
 
         scores,
 
@@ -328,28 +403,25 @@ def detect_intent(text):
     )
 
 
-    # default education query
 
-    if scores[best]==0:
+    if scores[result]==0:
 
         return "curriculum"
 
 
 
-    return best
+    return result
 
 
 
 
 
+# ======================================================
+# Analyzer
+# ======================================================
 
 
-# =====================================
-# Main Analyzer
-# =====================================
-
-
-def analyze_query(question:str):
+def analyze_query(question):
 
 
     text=normalize_text(question)
@@ -369,14 +441,7 @@ def analyze_query(question:str):
     for pattern,value in GRADE_PATTERNS.items():
 
 
-        if re.search(
-
-            pattern,
-
-            text
-
-        ):
-
+        if re.search(pattern,text):
 
             meta.grade=value
 
@@ -393,12 +458,11 @@ def analyze_query(question:str):
 
         if any(
 
-            word in text
+            w in text
 
-            for word in words
+            for w in words
 
         ):
-
 
             meta.subject=subject
 
@@ -408,26 +472,32 @@ def analyze_query(question:str):
 
 
 
-    # Intent
+    # Term
 
-    meta.intent=detect_intent(
-
-        text
-
-    )
+    for pattern,value in TERM_PATTERNS.items():
 
 
+        if re.search(pattern,text):
+
+            meta.term=value
+
+            break
 
 
 
 
-    # Live Search
+
+    meta.intent=detect_intent(text)
+
+
+
+
 
     meta.needs_live_search=any(
 
-        word in text
+        x in text
 
-        for word in [
+        for x in [
 
             "اليوم",
 
@@ -449,34 +519,62 @@ def analyze_query(question:str):
 
 
 
-    if meta.intent=="exam":
+    # Source Type
 
-        meta.source_category="exams"
-
-
-    elif meta.intent=="news":
+    if meta.intent=="news":
 
         meta.source_category="news"
 
 
+    elif meta.intent=="exam":
+
+        meta.source_category="exam"
 
 
 
-    # Build Search Query
 
-    query_parts=[
+
+    # Build Query
+
+    query=[
+
 
         question,
 
+
         meta.subject,
+
 
         meta.grade,
 
-        "وزارة التربية والتعليم",
 
-        "منهج مصر"
+        meta.term
+
 
     ]
+
+
+
+    if meta.intent in [
+
+        "curriculum",
+
+        "summary",
+
+        "explanation",
+
+        "exercise"
+
+    ]:
+
+
+        query.append(
+
+            "منهج وزارة التربية والتعليم مصر"
+
+        )
+
+
 
 
 
@@ -484,7 +582,7 @@ def analyze_query(question:str):
 
         x
 
-        for x in query_parts
+        for x in query
 
         if x
 
@@ -504,6 +602,8 @@ def analyze_query(question:str):
 
             meta.grade,
 
+            meta.term,
+
             meta.intent
 
         ]
@@ -518,7 +618,19 @@ def analyze_query(question:str):
 
     logger.info(
 
-        f"Intent={meta.intent} | Subject={meta.subject} | Grade={meta.grade}"
+        f"""
+
+        Query={question}
+
+        Intent={meta.intent}
+
+        Subject={meta.subject}
+
+        Grade={meta.grade}
+
+        Term={meta.term}
+
+        """
 
     )
 
