@@ -288,7 +288,7 @@ class LLMConfig(BaseModel):
 
         get_secret(
             "LLM_MODEL",
-            "google/gemma-4-31b-it:free"
+            "google/gemini-2.0-flash-exp:free"
         )
 
     )
