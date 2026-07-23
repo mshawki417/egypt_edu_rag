@@ -1,9 +1,16 @@
 """
 Production Arabic Document Cleaner
-Optimized for Education RAG
+Education RAG Compatible Version
+
+Supports:
+- clean_document
+- clean_text
+- is_arabic_heavy
+- extract_arabic_sections
 """
 
 from __future__ import annotations
+
 
 import re
 import hashlib
@@ -11,8 +18,10 @@ import unicodedata
 
 
 
+
+
 # =====================================================
-# Regex Patterns
+# Regex
 # =====================================================
 
 
@@ -41,19 +50,21 @@ MULTI_NEWLINE = re.compile(
 )
 
 
-PAGE_MARKER = re.compile(
-    r"\[?\s*صفحة\s*\d+\s*\]?"
-)
-
-
 ARABIC_DIACRITICS = re.compile(
     r"[\u064B-\u065F\u0670]"
 )
 
 
+PAGE_PATTERN = re.compile(
+    r"\[?\s*صفحة\s*\d+\s*\]?"
+)
+
+
+
+
 
 # =====================================================
-# Web Noise
+# Noise
 # =====================================================
 
 
@@ -83,20 +94,13 @@ NOISE_PATTERNS = [
 
     r"^إعلان ممول$",
 
-    r"^اعلان ممول$",
-
 ]
 
 
 
 
 
-# =====================================================
-# Educational Keywords
-# =====================================================
-
-
-EDU_KEYWORDS = [
+EDUCATION_WORDS = [
 
     "درس",
 
@@ -106,9 +110,9 @@ EDU_KEYWORDS = [
 
     "الصف",
 
-    "الفصل",
-
     "الترم",
+
+    "الفصل",
 
     "وزارة التربية",
 
@@ -116,9 +120,8 @@ EDU_KEYWORDS = [
 
     "الإجابة",
 
-    "شرح",
-
 ]
+
 
 
 
@@ -144,7 +147,6 @@ def normalize_arabic(text:str)->str:
 
     replacements = {
 
-
         "أ":"ا",
 
         "إ":"ا",
@@ -157,8 +159,7 @@ def normalize_arabic(text:str)->str:
 
         "ؤ":"و",
 
-        "ئ":"ي",
-
+        "ئ":"ي"
 
     }
 
@@ -176,7 +177,7 @@ def normalize_arabic(text:str)->str:
 
 
 
-    text = ARABIC_DIACRITICS.sub(
+    text=ARABIC_DIACRITICS.sub(
 
         "",
 
@@ -191,16 +192,15 @@ def normalize_arabic(text:str)->str:
 
 
 
-
 # =====================================================
-# Remove Web Noise
+# Noise Removal
 # =====================================================
 
 
 def remove_noise(text:str)->str:
 
 
-    output=[]
+    result=[]
 
 
     for line in text.splitlines():
@@ -222,13 +222,13 @@ def remove_noise(text:str)->str:
         for pattern in NOISE_PATTERNS:
 
 
-            if re.search(
+            if re.match(
 
                 pattern,
 
                 line,
 
-                flags=re.IGNORECASE
+                re.IGNORECASE
 
             ):
 
@@ -240,47 +240,11 @@ def remove_noise(text:str)->str:
 
         if not remove:
 
-            output.append(line)
+            result.append(line)
 
 
 
-    return "\n".join(output)
-
-
-
-
-
-
-
-# =====================================================
-# Normalize Lines
-# =====================================================
-
-
-def normalize_lines(text:str)->str:
-
-
-    lines=[]
-
-
-    for line in text.splitlines():
-
-
-        line=line.strip()
-
-
-        if len(line)<3:
-
-            continue
-
-
-        lines.append(line)
-
-
-
-    return "\n".join(lines)
-
-
+    return "\n".join(result)
 
 
 
@@ -288,7 +252,7 @@ def normalize_lines(text:str)->str:
 
 
 # =====================================================
-# Remove Duplicate Lines
+# Duplicate Handling
 # =====================================================
 
 
@@ -297,7 +261,7 @@ def remove_duplicates(text:str)->str:
 
     seen=set()
 
-    result=[]
+    output=[]
 
 
 
@@ -305,6 +269,12 @@ def remove_duplicates(text:str)->str:
 
 
         key=line.strip()
+
+
+
+        if not key:
+
+            continue
 
 
 
@@ -316,22 +286,16 @@ def remove_duplicates(text:str)->str:
 
         seen.add(key)
 
-        result.append(key)
+        output.append(key)
 
 
 
-    return "\n".join(result)
-
-
+    return "\n".join(output)
 
 
 
 
 
-
-# =====================================================
-# Remove Duplicate Paragraphs
-# =====================================================
 
 
 def remove_repeated_blocks(text:str)->str:
@@ -346,36 +310,32 @@ def remove_repeated_blocks(text:str)->str:
 
 
 
-    for paragraph in paragraphs:
+    for p in paragraphs:
 
 
-        paragraph=paragraph.strip()
+        p=p.strip()
 
 
-        if not paragraph:
+        if not p:
 
             continue
 
 
 
-        fingerprint=hashlib.md5(
+        h=hashlib.md5(
 
-            paragraph.encode(
-
-                "utf-8"
-
-            )
+            p.encode("utf-8")
 
         ).hexdigest()
 
 
 
-        if fingerprint not in seen:
+        if h not in seen:
 
 
-            seen.add(fingerprint)
+            seen.add(h)
 
-            output.append(paragraph)
+            output.append(p)
 
 
 
@@ -386,10 +346,104 @@ def remove_repeated_blocks(text:str)->str:
 
 
 
+# =====================================================
+# Arabic Detection
+# =====================================================
+
+
+def is_arabic_heavy(
+
+    text:str,
+
+    threshold:float=0.15
+
+)->bool:
+
+
+    if not text:
+
+        return False
+
+
+
+    arabic=sum(
+
+        1
+
+        for c in text
+
+        if "\u0600" <= c <= "\u06FF"
+
+    )
+
+
+    ratio=arabic/max(
+
+        len(text),
+
+        1
+
+    )
+
+
+    return ratio >= threshold
+
+
+
+
 
 
 # =====================================================
-# Quality Detection
+# Extract Arabic Sections
+# =====================================================
+
+
+def extract_arabic_sections(
+
+    text:str,
+
+    min_len:int=40
+
+)->str:
+
+
+    sections=[]
+
+
+
+    for line in text.splitlines():
+
+
+        line=line.strip()
+
+
+        if len(line)<min_len:
+
+            continue
+
+
+
+        if is_arabic_heavy(
+
+            line,
+
+            threshold=0.20
+
+        ):
+
+            sections.append(line)
+
+
+
+    return "\n\n".join(sections)
+
+
+
+
+
+
+# =====================================================
+# Quality
 # =====================================================
 
 
@@ -410,11 +464,10 @@ def quality_score(text:str)->float:
 
 
 
-    # Size
-
     if length>500:
 
         score+=0.25
+
 
 
     if length>1500:
@@ -423,45 +476,25 @@ def quality_score(text:str)->float:
 
 
 
-    # Arabic Ratio
+    if is_arabic_heavy(
 
-    arabic=sum(
+        text,
 
-        1
+        0.3
 
-        for c in text
-
-        if "\u0600" <= c <= "\u06FF"
-
-    )
-
-
-
-    ratio=arabic/max(
-
-        length,
-
-        1
-
-    )
-
-
-
-    if ratio>0.3:
+    ):
 
         score+=0.25
 
 
 
-    # Education relevance
-
     matches=sum(
 
         1
 
-        for word in EDU_KEYWORDS
+        for x in EDUCATION_WORDS
 
-        if word in text
+        if x in text
 
     )
 
@@ -474,7 +507,6 @@ def quality_score(text:str)->float:
         0.25
 
     )
-
 
 
     return round(
@@ -491,9 +523,8 @@ def quality_score(text:str)->float:
 
 
 
-
 # =====================================================
-# Document Validation
+# Validation
 # =====================================================
 
 
@@ -506,30 +537,13 @@ def is_valid_document(text:str)->bool:
 
 
 
-    arabic=sum(
+    return is_arabic_heavy(
 
-        1
+        text,
 
-        for c in text
-
-        if "\u0600" <= c <= "\u06FF"
+        0.15
 
     )
-
-
-
-    ratio=arabic/max(
-
-        len(text),
-
-        1
-
-    )
-
-
-    return ratio>=0.15
-
-
 
 
 
@@ -546,15 +560,9 @@ def document_hash(text:str)->str:
 
     return hashlib.md5(
 
-        text.encode(
-
-            "utf-8"
-
-        )
+        text.encode("utf-8")
 
     ).hexdigest()
-
-
 
 
 
@@ -571,7 +579,6 @@ def clean_document(text:str)->dict:
 
     if not text:
 
-
         return {
 
             "content":"",
@@ -584,8 +591,6 @@ def clean_document(text:str)->dict:
 
 
 
-    # HTML
-
     text=HTML_PATTERN.sub(
 
         " ",
@@ -595,8 +600,6 @@ def clean_document(text:str)->dict:
     )
 
 
-
-    # URLs
 
     text=URL_PATTERN.sub(
 
@@ -608,8 +611,6 @@ def clean_document(text:str)->dict:
 
 
 
-    # Emails
-
     text=EMAIL_PATTERN.sub(
 
         " ",
@@ -620,9 +621,7 @@ def clean_document(text:str)->dict:
 
 
 
-    # PDF pages
-
-    text=PAGE_MARKER.sub(
+    text=PAGE_PATTERN.sub(
 
         " ",
 
@@ -632,8 +631,6 @@ def clean_document(text:str)->dict:
 
 
 
-    # Arabic normalize
-
     text=normalize_arabic(
 
         text
@@ -641,8 +638,6 @@ def clean_document(text:str)->dict:
     )
 
 
-
-    # Noise
 
     text=remove_noise(
 
@@ -652,11 +647,11 @@ def clean_document(text:str)->dict:
 
 
 
-    text=normalize_lines(
+    text=extract_arabic_sections(
 
         text
 
-    )
+    ) or text
 
 
 
@@ -676,8 +671,6 @@ def clean_document(text:str)->dict:
 
 
 
-    # Spaces
-
     text=MULTI_SPACE.sub(
 
         " ",
@@ -685,6 +678,7 @@ def clean_document(text:str)->dict:
         text
 
     )
+
 
 
     text=MULTI_NEWLINE.sub(
@@ -735,8 +729,6 @@ def clean_document(text:str)->dict:
 
 
 
-
-
 # =====================================================
 # Backward Compatibility
 # =====================================================
@@ -751,22 +743,7 @@ def clean_text(
 )->str:
 
 
-    """
-    Compatibility function.
-
-    Used by old modules:
-    - chunker
-    - scraper
-    - preprocessing
-    """
-
-
-    result=clean_document(
-
-        text
-
-    )
-
+    result=clean_document(text)
 
 
     content=result.get(
@@ -776,13 +753,6 @@ def clean_text(
         ""
 
     )
-
-
-
-    if not normalize:
-
-        return content
-
 
 
     return content.strip()
