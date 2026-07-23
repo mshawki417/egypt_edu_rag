@@ -288,7 +288,7 @@ class LLMConfig(BaseModel):
 
         get_secret(
             "LLM_MODEL",
-            "google/gemini-2.0-flash-exp:free"
+            "openrouter/free"
         )
 
     )
