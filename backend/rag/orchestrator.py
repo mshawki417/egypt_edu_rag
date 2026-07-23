@@ -40,22 +40,63 @@ from backend.rag.chain import (
 )
 
 
-from config.settings import retrieval_cfg, reranker_cfg
+from config.settings import (
+    retrieval_cfg,
+    reranker_cfg
+)
 
 
 
-PIPELINE_CACHE = TTLCache(maxsize=1000, ttl=3600)
+PIPELINE_CACHE = TTLCache(
+    maxsize=1000,
+    ttl=3600
+)
+
 
 _reranker_model = None
 
+
+
+# =============================
+# Reranker
+# =============================
+
 def get_reranker():
+
     global _reranker_model
+
+
     if _reranker_model is None:
+
+        logger.info(
+            "Loading reranker model..."
+        )
+
         from sentence_transformers import CrossEncoder
-        _reranker_model = CrossEncoder(reranker_cfg.model)
+
+
+        _reranker_model = CrossEncoder(
+
+            reranker_cfg.model,
+
+            max_length=512
+
+        )
+
+
+        logger.info(
+            "Reranker loaded successfully"
+        )
+
+
     return _reranker_model
 
 
+
+
+# =============================
+# Utils
+# =============================
 
 def cache_key(question):
 
@@ -63,9 +104,11 @@ def cache_key(question):
 
 
 
-def update_status(callback,msg):
+
+def update_status(callback, msg):
 
     logger.info(msg)
+
 
     if callback:
 
@@ -75,11 +118,15 @@ def update_status(callback,msg):
 
 
 
+# =============================
+# Main Pipeline
+# =============================
+
 async def run_rag_pipeline_async(
 
-    question:str,
+    question: str,
 
-    retriever_strategy:RetrieverType="hybrid",
+    retriever_strategy: RetrieverType = "hybrid",
 
     status_callback=None,
 
@@ -94,13 +141,19 @@ async def run_rag_pipeline_async(
     )
 
 
-    meta:QueryMetadata = analyze_query(
+
+    meta: QueryMetadata = analyze_query(
+
         question
+
     )
 
 
+
     key = cache_key(
+
         meta.search_query
+
     )
 
 
@@ -115,14 +168,20 @@ async def run_rag_pipeline_async(
 
 
         update_status(
+
             status_callback,
+
             "Live scraping"
+
         )
 
 
         docs = await async_scrape_for_query(
+
             meta
+
         )
+
 
 
         if not docs:
@@ -141,42 +200,77 @@ async def run_rag_pipeline_async(
             )
 
 
+
         update_status(
+
             status_callback,
+
             "Processing documents"
+
         )
+
 
 
         chunks = process_documents(
+
             docs
+
         )
 
 
-        PIPELINE_CACHE[key]=chunks
+
+        PIPELINE_CACHE[key] = chunks
+
 
 
 
 
     update_status(
+
         status_callback,
+
         "Building retrieval"
+
     )
+
 
 
     retriever = build_retriever(
+
         retriever_strategy
+
     )
+
 
 
     retriever.index(
+
         chunks
+
     )
+
+
 
 
 
     update_status(
+
         status_callback,
+
         "Searching"
+
+    )
+
+
+    # Limit retrieval candidates
+    # before expensive reranking
+
+    retrieval_limit = min(
+
+        retrieval_cfg.top_k_retrieve,
+
+        15
+
     )
 
 
@@ -184,36 +278,157 @@ async def run_rag_pipeline_async(
 
         question,
 
-        retrieval_cfg.top_k_retrieve
+        retrieval_limit
 
     )
 
 
+
+
+
+    # =============================
+    # Reranking
+    # =============================
+
     if reranker_cfg.enabled and retrieved:
-        update_status(status_callback, "Reranking documents")
-        reranker = get_reranker()
-        pairs = [[question, item.chunk.text] for item in retrieved]
-        scores = reranker.predict(pairs)
-        
-        for item, score in zip(retrieved, scores):
-            item.score = float(score)
-            
-        retrieved.sort(key=lambda x: x.score, reverse=True)
-        retrieved = retrieved[:reranker_cfg.top_k]
+
+
+        update_status(
+
+            status_callback,
+
+            "Reranking documents"
+
+        )
+
+
+        try:
+
+
+            reranker = get_reranker()
+
+
+
+            pairs = [
+
+                [
+
+                    question,
+
+                    item.chunk.text
+
+                ]
+
+                for item in retrieved
+
+            ]
+
+
+
+            scores = reranker.predict(
+
+                pairs,
+
+                batch_size=8,
+
+                show_progress_bar=False
+
+            )
+
+
+
+            for item, score in zip(
+
+                retrieved,
+
+                scores
+
+            ):
+
+                item.score = float(score)
+
+
+
+            retrieved.sort(
+
+                key=lambda x: x.score,
+
+                reverse=True
+
+            )
+
+
+
+            retrieved = retrieved[
+
+                :reranker_cfg.top_k
+
+            ]
+
+
+
+            logger.info(
+
+                f"Reranking completed. Final chunks: {len(retrieved)}"
+
+            )
+
+
+
+        except Exception as e:
+
+
+            logger.exception(
+
+                f"Reranking failed: {e}"
+
+            )
+
+
+            retrieved = retrieved[
+
+                :reranker_cfg.top_k
+
+            ]
+
+
+
     else:
-        retrieved = retrieved[:reranker_cfg.top_k]
+
+
+        retrieved = retrieved[
+
+            :reranker_cfg.top_k
+
+        ]
+
+
 
 
 
     update_status(
+
         status_callback,
+
         "Generating answer"
+
     )
 
 
 
+
+
     if stream:
-        return stream_answer_async(question, retrieved)
+
+        return stream_answer_async(
+
+            question,
+
+            retrieved
+
+        )
+
+
 
     return await generate_answer_async(
 
@@ -227,6 +442,11 @@ async def run_rag_pipeline_async(
 
 
 
+
+
+# =============================
+# Sync Wrapper
+# =============================
 
 def run_rag_pipeline(
 
@@ -261,19 +481,27 @@ def run_rag_pipeline(
 
 
 
+# =============================
+# Metadata
+# =============================
+
 def get_pipeline_metadata(question):
 
 
     meta = analyze_query(
+
         question
+
     )
 
 
     return {
 
+
         "grade":
 
         meta.grade,
+
 
 
         "subject":
@@ -281,14 +509,17 @@ def get_pipeline_metadata(question):
         meta.subject,
 
 
+
         "intent":
 
         meta.intent,
 
 
+
         "live":
 
         meta.needs_live_search,
+
 
 
         "query":
