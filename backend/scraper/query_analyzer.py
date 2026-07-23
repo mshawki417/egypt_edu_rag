@@ -1,7 +1,15 @@
 """
 Advanced Arabic Query Analyzer
-Production Education RAG Version
+Production Education RAG Engine
+
+Designed for:
+- Curriculum QA
+- General Education QA
+- Exam Assistant
+- Summarization
+- Explanation
 """
+
 
 from __future__ import annotations
 
@@ -14,101 +22,158 @@ from loguru import logger
 
 
 
-# ======================================================
-# Grade / Stage Detection
-# ======================================================
 
 
-GRADE_PATTERNS = {
+# =====================================================
+# Education Levels
+# =====================================================
 
 
-    # Primary
-
-    r"(الصف\s*)?(الاول|اول|1|١)\s*(ابتدائي|ابتدائى)":
-        "الأول الابتدائي",
+STAGE_PATTERNS={
 
 
-    r"(الصف\s*)?(الثاني|ثاني|2|٢)\s*(ابتدائي|ابتدائى)":
-        "الثاني الابتدائي",
+    "primary":
+    [
+        "ابتدائي",
+        "ابتدائى",
+        "الابتدائي"
+    ],
 
 
-    r"(الصف\s*)?(الثالث|ثالث|3|٣)\s*(ابتدائي|ابتدائى)":
-        "الثالث الابتدائي",
+    "preparatory":
+    [
+        "اعدادي",
+        "إعدادي",
+        "الاعدادي"
+    ],
 
 
-    r"(الصف\s*)?(الرابع|رابع|4|٤)\s*(ابتدائي|ابتدائى)":
-        "الرابع الابتدائي",
-
-
-    r"(الصف\s*)?(الخامس|خامس|5|٥)\s*(ابتدائي|ابتدائى)":
-        "الخامس الابتدائي",
-
-
-    r"(الصف\s*)?(السادس|سادس|6|٦)\s*(ابتدائي|ابتدائى)":
-        "السادس الابتدائي",
-
-
-
-    # Preparatory
-
-    r"(الصف\s*)?(الاول|اول|1|١)\s*(اعدادي|إعدادي)":
-        "الأول الإعدادي",
-
-
-    r"(الصف\s*)?(الثاني|ثاني|2|٢)\s*(اعدادي|إعدادي)":
-        "الثاني الإعدادي",
-
-
-    r"(الصف\s*)?(الثالث|ثالث|3|٣)\s*(اعدادي|إعدادي)":
-        "الثالث الإعدادي",
-
-
-
-    # Secondary
-
-    r"(الصف\s*)?(الاول|اول|1|١)\s*(ثانوي)":
-        "الأول الثانوي",
-
-
-    r"(الصف\s*)?(الثاني|ثاني|2|٢)\s*(ثانوي)":
-        "الثاني الثانوي",
-
-
-    r"(الصف\s*)?(الثالث|ثالث|3|٣)\s*(ثانوي|ثانويه عامه)":
-        "الثالث الثانوي"
-
+    "secondary":
+    [
+        "ثانوي",
+        "الثانوية العامة"
+    ]
 
 }
 
 
 
 
-# ======================================================
-# Semester Detection
-# ======================================================
+
+# =====================================================
+# Grade Detection
+# =====================================================
 
 
-TERM_PATTERNS={
+GRADE_PATTERNS={
 
 
-    r"(الترم الاول|الفصل الاول|ترم اول)":
-        "الترم الأول",
+"الأول الابتدائي":
+[
+"اول ابتدائي",
+"الاول ابتدائي",
+"1 ابتدائي"
+],
 
 
-    r"(الترم الثاني|الفصل الثاني|ترم ثاني)":
-        "الترم الثاني"
+"الثاني الابتدائي":
+[
+"ثاني ابتدائي",
+"الثاني ابتدائي",
+"2 ابتدائي"
+],
+
+
+"الثالث الابتدائي":
+[
+"ثالث ابتدائي",
+"الثالث ابتدائي",
+"3 ابتدائي"
+],
+
+
+"الرابع الابتدائي":
+[
+"رابع ابتدائي",
+"الرابع ابتدائي",
+"4 ابتدائي"
+],
+
+
+"الخامس الابتدائي":
+[
+"خامس ابتدائي",
+"الخامس ابتدائي",
+"5 ابتدائي"
+],
+
+
+"السادس الابتدائي":
+[
+"سادس ابتدائي",
+"السادس ابتدائي",
+"6 ابتدائي"
+],
+
+
+
+"الأول الإعدادي":
+[
+"اول اعدادي",
+"الاول اعدادي",
+"1 اعدادي"
+],
+
+
+"الثاني الإعدادي":
+[
+"ثاني اعدادي",
+"الثاني اعدادي",
+"2 اعدادي"
+],
+
+
+"الثالث الإعدادي":
+[
+"ثالث اعدادي",
+"الثالث اعدادي",
+"3 اعدادي"
+],
+
+
+
+"الأول الثانوي":
+[
+"اول ثانوي",
+"الاول ثانوي"
+],
+
+
+"الثاني الثانوي":
+[
+"ثاني ثانوي",
+"الثاني ثانوي"
+],
+
+
+"الثالث الثانوي":
+[
+"ثالث ثانوي",
+"الثانوية العامة"
+]
 
 }
 
 
 
 
-# ======================================================
+
+# =====================================================
 # Subjects
-# ======================================================
+# =====================================================
 
 
-SUBJECT_PATTERNS={
+SUBJECTS={
 
 
 "رياضيات":
@@ -116,17 +181,11 @@ SUBJECT_PATTERNS={
 "رياضيات",
 "حساب",
 "جبر",
-"هندسه",
+"هندسة",
 "تفاضل",
-"تكامل"
-],
-
-
-
-"علوم":
-[
-"علوم",
-"science"
+"تكامل",
+"قسمة",
+"ضرب"
 ],
 
 
@@ -134,7 +193,10 @@ SUBJECT_PATTERNS={
 "فيزياء":
 [
 "فيزياء",
-"physics"
+"سرعة",
+"قوة",
+"طاقة",
+"حركة"
 ],
 
 
@@ -142,7 +204,17 @@ SUBJECT_PATTERNS={
 "كيمياء":
 [
 "كيمياء",
-"chemistry"
+"تفاعل",
+"ذرة"
+],
+
+
+
+"علوم":
+[
+"علوم",
+"biology",
+"science"
 ],
 
 
@@ -150,7 +222,8 @@ SUBJECT_PATTERNS={
 "احياء":
 [
 "احياء",
-"biology"
+"خلية",
+"جسم الانسان"
 ],
 
 
@@ -158,9 +231,9 @@ SUBJECT_PATTERNS={
 "لغة عربية":
 [
 "عربي",
-"لغة عربية",
 "نحو",
-"بلاغه"
+"بلاغة",
+"شعر"
 ],
 
 
@@ -176,15 +249,17 @@ SUBJECT_PATTERNS={
 "تاريخ":
 [
 "تاريخ",
-"history"
+"ثورة",
+"حرب"
 ],
 
 
 
-"دراسات اجتماعية":
+"جغرافيا":
 [
-"دراسات",
-"جغرافيا"
+"جغرافيا",
+"مناخ",
+"سكان"
 ]
 
 }
@@ -192,13 +267,13 @@ SUBJECT_PATTERNS={
 
 
 
-# ======================================================
+
+# =====================================================
 # Intent
-# ======================================================
+# =====================================================
 
 
-INTENTS={
-
+INTENT_RULES={
 
 
 "summary":
@@ -216,28 +291,18 @@ INTENTS={
 "اشرح",
 "شرح",
 "وضح",
-"فسر"
+"فسر",
+"كيف"
 ],
 
 
 
-"exercise":
+"solution":
 [
 "حل",
-"تمارين",
-"مسائل",
-"امثلة"
-],
-
-
-
-"exam":
-[
-"امتحان",
-"اختبار",
-"نتيجة",
-"درجات",
-"جدول"
+"مسألة",
+"تمرين",
+"مثال"
 ],
 
 
@@ -247,7 +312,27 @@ INTENTS={
 "من هو",
 "من صاحب",
 "ما هو",
-"عرف"
+"عرف",
+"تعريف"
+],
+
+
+
+"comparison":
+[
+"قارن",
+"الفرق",
+"مقارنة"
+],
+
+
+
+"exam":
+[
+"امتحان",
+"اختبار",
+"نتيجة",
+"درجات"
 ],
 
 
@@ -255,10 +340,10 @@ INTENTS={
 "news":
 [
 "قرار",
+"خبر",
+"اليوم",
 "اخر",
-"جديد",
-"وزارة",
-"خبر"
+"جديد"
 ],
 
 
@@ -277,9 +362,10 @@ INTENTS={
 
 
 
-# ======================================================
+
+# =====================================================
 # Metadata
-# ======================================================
+# =====================================================
 
 
 @dataclass
@@ -289,16 +375,28 @@ class QueryMetadata:
     raw_question:str
 
 
-    intent:str="curriculum"
+    normalized:str=""
 
 
-    grade:str|None=None
+    intent:str="general"
 
 
     subject:str|None=None
 
 
+    stage:str|None=None
+
+
+    grade:str|None=None
+
+
     term:str|None=None
+
+
+    year:str|None=None
+
+
+    topic:str|None=None
 
 
     search_query:str=""
@@ -309,18 +407,18 @@ class QueryMetadata:
     )
 
 
+    source_category:str="general"
+
+
     needs_live_search:bool=False
 
 
-    source_category:str="education"
 
 
 
-
-
-# ======================================================
+# =====================================================
 # Normalize
-# ======================================================
+# =====================================================
 
 
 def normalize_text(text):
@@ -329,16 +427,15 @@ def normalize_text(text):
     text=text.lower()
 
 
-
     replacements={
 
         "أ":"ا",
         "إ":"ا",
         "آ":"ا",
-        "ى":"ي"
+        "ى":"ي",
+        "ة":"ه"
 
     }
-
 
 
     for a,b in replacements.items():
@@ -348,16 +445,24 @@ def normalize_text(text):
 
 
     text=re.sub(
+
         r"[^\w\s\u0600-\u06ff]",
+
         " ",
+
         text
+
     )
 
 
     text=re.sub(
+
         r"\s+",
+
         " ",
+
         text
+
     )
 
 
@@ -367,9 +472,30 @@ def normalize_text(text):
 
 
 
-# ======================================================
-# Detect Intent
-# ======================================================
+# =====================================================
+# Detect
+# =====================================================
+
+
+def detect_from_dictionary(text,dictionary):
+
+
+    for key,values in dictionary.items():
+
+
+        for value in values:
+
+
+            if value in text:
+
+                return key
+
+
+    return None
+
+
+
+
 
 
 def detect_intent(text):
@@ -379,10 +505,9 @@ def detect_intent(text):
 
 
 
-    for name,words in INTENTS.items():
+    for intent,words in INTENT_RULES.items():
 
-
-        scores[name]=sum(
+        scores[intent]=sum(
 
             1
 
@@ -394,7 +519,7 @@ def detect_intent(text):
 
 
 
-    result=max(
+    best=max(
 
         scores,
 
@@ -404,24 +529,62 @@ def detect_intent(text):
 
 
 
-    if scores[result]==0:
+    if scores[best]==0:
 
-        return "curriculum"
-
-
-
-    return result
+        return "general"
 
 
 
+    return best
 
 
-# ======================================================
-# Analyzer
-# ======================================================
 
 
-def analyze_query(question):
+
+
+def detect_year(text):
+
+
+    result=re.search(
+
+        r"(20\d{2})",
+
+        text
+
+    )
+
+
+    return result.group(1) if result else None
+
+
+
+
+
+def detect_term(text):
+
+
+    if "الترم الاول" in text:
+
+        return "الترم الأول"
+
+
+    if "الترم الثاني" in text:
+
+        return "الترم الثاني"
+
+
+    return None
+
+
+
+
+
+# =====================================================
+# Main
+# =====================================================
+
+
+def analyze_query(question:str):
 
 
     text=normalize_text(question)
@@ -430,31 +593,49 @@ def analyze_query(question):
 
     meta=QueryMetadata(
 
-        raw_question=question
+        raw_question=question,
+
+        normalized=text
 
     )
 
 
 
-    # Grade
-
-    for pattern,value in GRADE_PATTERNS.items():
-
-
-        if re.search(pattern,text):
-
-            meta.grade=value
-
-            break
+    meta.intent=detect_intent(text)
 
 
 
+    meta.subject=detect_from_dictionary(
+
+        text,
+
+        SUBJECTS
+
+    )
 
 
-    # Subject
 
-    for subject,words in SUBJECT_PATTERNS.items():
 
+    meta.grade=detect_from_dictionary(
+
+        text,
+
+        GRADE_PATTERNS
+
+    )
+
+
+
+
+    meta.term=detect_term(text)
+
+
+
+    meta.year=detect_year(text)
+
+
+
+    for stage,words in STAGE_PATTERNS.items():
 
         if any(
 
@@ -464,7 +645,7 @@ def analyze_query(question):
 
         ):
 
-            meta.subject=subject
+            meta.stage=stage
 
             break
 
@@ -472,25 +653,33 @@ def analyze_query(question):
 
 
 
-    # Term
-
-    for pattern,value in TERM_PATTERNS.items():
-
-
-        if re.search(pattern,text):
-
-            meta.term=value
-
-            break
+    # -------------------------------
+    # Source Category
+    # -------------------------------
 
 
+    if meta.grade or meta.term:
+
+        meta.source_category="curriculum"
+
+
+    elif meta.intent=="news":
+
+        meta.source_category="news"
+
+
+    else:
+
+        meta.source_category="general"
 
 
 
-    meta.intent=detect_intent(text)
 
 
 
+    # -------------------------------
+    # Live Search
+    # -------------------------------
 
 
     meta.needs_live_search=any(
@@ -507,8 +696,6 @@ def analyze_query(question):
 
             "قرار",
 
-            "2025",
-
             "2026"
 
         ]
@@ -519,53 +706,52 @@ def analyze_query(question):
 
 
 
-    # Source Type
 
-    if meta.intent=="news":
+    # -------------------------------
+    # Smart Query Builder
+    # -------------------------------
 
-        meta.source_category="news"
-
-
-    elif meta.intent=="exam":
-
-        meta.source_category="exam"
-
-
-
-
-
-    # Build Query
 
     query=[
 
-
-        question,
-
-
-        meta.subject,
-
-
-        meta.grade,
-
-
-        meta.term
-
+        question
 
     ]
 
 
 
-    if meta.intent in [
+    if meta.subject:
 
-        "curriculum",
+        query.append(
 
-        "summary",
+            meta.subject
 
-        "explanation",
+        )
 
-        "exercise"
 
-    ]:
+
+    if meta.grade:
+
+        query.append(
+
+            meta.grade
+
+        )
+
+
+
+    if meta.term:
+
+        query.append(
+
+            meta.term
+
+        )
+
+
+
+
+    if meta.source_category=="curriculum":
 
 
         query.append(
@@ -576,18 +762,11 @@ def analyze_query(question):
 
 
 
-
-
     meta.search_query=" ".join(
 
-        x
-
-        for x in query
-
-        if x
+        query
 
     )
-
 
 
 
@@ -615,22 +794,21 @@ def analyze_query(question):
 
 
 
-
     logger.info(
 
-        f"""
+        {
 
-        Query={question}
+            "query":question,
 
-        Intent={meta.intent}
+            "intent":meta.intent,
 
-        Subject={meta.subject}
+            "subject":meta.subject,
 
-        Grade={meta.grade}
+            "grade":meta.grade,
 
-        Term={meta.term}
+            "source":meta.source_category
 
-        """
+        }
 
     )
 
