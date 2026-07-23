@@ -7,22 +7,19 @@ from __future__ import annotations
 
 
 import asyncio
-
 import hashlib
 
 import httpx
 
 from bs4 import BeautifulSoup
-
 from dataclasses import dataclass, field
 
 from loguru import logger
-
 from cachetools import TTLCache
 
 import fitz
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 
 
@@ -32,7 +29,6 @@ from duckduckgo_search import DDGS
 
 @dataclass
 class RawDocument:
-
 
     content: str
 
@@ -50,15 +46,70 @@ class RawDocument:
 
 
 
-
 # ==========================
 # Cache
 # ==========================
 
-SCRAPER_CACHE = TTLCache(maxsize=1000, ttl=3600)
+SCRAPER_CACHE = TTLCache(
+    maxsize=1000,
+    ttl=3600
+)
 
 
 REQUEST_LIMIT = asyncio.Semaphore(5)
+
+
+
+# ==========================
+# Domain Rules
+# ==========================
+
+
+ALLOWED_DOMAINS = [
+
+    "moe.gov.eg",
+
+    "ekb.eg",
+
+    "study.ekb.eg",
+
+    "youm7.com",
+
+    "elwatannews.com",
+
+    "marefa.org",
+
+    "wikipedia.org"
+
+]
+
+
+BLOCKED_DOMAINS = [
+
+    "reddit.com",
+
+    "facebook.com",
+
+    "instagram.com",
+
+    "pinterest.com",
+
+    "tiktok.com"
+
+]
+
+
+
+def valid_url(url):
+
+    if any(
+        d in url
+        for d in BLOCKED_DOMAINS
+    ):
+        return False
+
+
+    return True
 
 
 
@@ -66,6 +117,7 @@ REQUEST_LIMIT = asyncio.Semaphore(5)
 # ==========================
 # Fetch URL
 # ==========================
+
 
 async def fetch_url(
 
@@ -79,7 +131,6 @@ async def fetch_url(
     if url in SCRAPER_CACHE:
 
         return SCRAPER_CACHE[url]
-
 
 
     async with REQUEST_LIMIT:
@@ -99,7 +150,6 @@ async def fetch_url(
             response.raise_for_status()
 
 
-
             content_type = response.headers.get(
 
                 "content-type",
@@ -113,11 +163,24 @@ async def fetch_url(
             if "pdf" in content_type:
 
 
-                doc = fitz.open(stream=response.content, filetype="pdf")
+                pdf = fitz.open(
+
+                    stream=response.content,
+
+                    filetype="pdf"
+
+                )
+
+
                 data = ""
-                for page in doc:
+
+
+                for page in pdf:
+
                     data += page.get_text()
-                doc.close()
+
+
+                pdf.close()
 
 
 
@@ -133,6 +196,21 @@ async def fetch_url(
                 )
 
 
+                for tag in soup(
+
+                    [
+                        "script",
+                        "style",
+                        "nav",
+                        "footer"
+                    ]
+
+                ):
+
+                    tag.decompose()
+
+
+
                 data = soup.get_text(
 
                     separator=" ",
@@ -143,8 +221,13 @@ async def fetch_url(
 
 
 
-            SCRAPER_CACHE[url] = data
+            if len(data) < 200:
 
+                return None
+
+
+
+            SCRAPER_CACHE[url] = data
 
 
             return data
@@ -166,21 +249,94 @@ async def fetch_url(
 
 
 
+
 # ==========================
 # Search URLs
 # ==========================
 
+
 def build_search_urls(query):
 
 
-    logger.info(f"DDG Search for: {query}")
+    logger.info(
+
+        f"DDG Search for: {query}"
+
+    )
+
+
     try:
+
+
+        search_query = (
+
+            f"{query} "
+
+            "مصر منهج وزارة التربية والتعليم"
+
+        )
+
+
+        urls=[]
+
+
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=3))
-            return [res['href'] for res in results if 'href' in res]
+
+
+            results = ddgs.text(
+
+                search_query,
+
+                region="eg-ar",
+
+                safesearch="moderate",
+
+                max_results=10
+
+            )
+
+
+
+            for result in results:
+
+
+                url = result.get(
+
+                    "href"
+
+                )
+
+
+                if url and valid_url(url):
+
+                    urls.append(url)
+
+
+
+        logger.info(
+
+            f"Found {len(urls)} URLs"
+
+        )
+
+
+        return urls
+
+
+
     except Exception as e:
-        logger.error(f"DDGS error: {e}")
+
+
+        logger.error(
+
+            f"DDGS error: {e}"
+
+        )
+
+
         return []
+
+
 
 
 
@@ -189,11 +345,11 @@ def build_search_urls(query):
 # Main Scraper
 # ==========================
 
+
 async def async_scrape_for_query(meta):
 
 
     query = meta.search_query
-
 
 
     logger.info(
@@ -221,7 +377,11 @@ async def async_scrape_for_query(meta):
         headers={
 
             "User-Agent":
-            "Mozilla/5.0"
+
+            (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64)"
+            )
 
         },
 
@@ -260,6 +420,7 @@ async def async_scrape_for_query(meta):
         ):
 
 
+
             if not content:
 
                 continue
@@ -288,7 +449,7 @@ async def async_scrape_for_query(meta):
 
                     metadata={
 
-                        "query":query
+                        "query": query
 
                     }
 
