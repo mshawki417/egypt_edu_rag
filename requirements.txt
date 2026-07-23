@@ -58,7 +58,7 @@ torchaudio
 pytest
 pytest-asyncio
 
-
+duckduckgo-search
 # Async & Caching
 nest-asyncio
 cachetools
