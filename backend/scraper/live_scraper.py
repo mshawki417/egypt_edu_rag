@@ -56,7 +56,40 @@ SCRAPER_CACHE = TTLCache(
 )
 
 
-REQUEST_LIMIT = asyncio.Semaphore(5)
+
+# ==========================
+# Async Request Limiter
+# ==========================
+
+def get_request_limit():
+
+    """
+    Creates semaphore per current asyncio task/event loop.
+    Prevents Streamlit asyncio.run() loop conflicts.
+    """
+
+    task = asyncio.current_task()
+
+
+    if task is None:
+
+        return asyncio.Semaphore(5)
+
+
+
+    if not hasattr(
+        task,
+        "_rag_request_limit"
+    ):
+
+        task._rag_request_limit = asyncio.Semaphore(
+            5
+        )
+
+
+    return task._rag_request_limit
+
+
 
 
 
@@ -84,6 +117,7 @@ ALLOWED_DOMAINS = [
 ]
 
 
+
 BLOCKED_DOMAINS = [
 
     "reddit.com",
@@ -100,16 +134,31 @@ BLOCKED_DOMAINS = [
 
 
 
-def valid_url(url):
+
+
+def valid_url(url: str):
+
 
     if any(
-        d in url
-        for d in BLOCKED_DOMAINS
+        domain in url
+        for domain in BLOCKED_DOMAINS
     ):
+
         return False
 
 
+
+    if ALLOWED_DOMAINS:
+
+        return any(
+            domain in url
+            for domain in ALLOWED_DOMAINS
+        )
+
+
+
     return True
+
 
 
 
@@ -133,7 +182,8 @@ async def fetch_url(
         return SCRAPER_CACHE[url]
 
 
-    async with REQUEST_LIMIT:
+
+    async with get_request_limit():
 
         try:
 
@@ -147,7 +197,9 @@ async def fetch_url(
             )
 
 
+
             response.raise_for_status()
+
 
 
             content_type = response.headers.get(
@@ -180,6 +232,7 @@ async def fetch_url(
                     data += page.get_text()
 
 
+
                 pdf.close()
 
 
@@ -196,13 +249,19 @@ async def fetch_url(
                 )
 
 
+
                 for tag in soup(
 
                     [
+
                         "script",
+
                         "style",
+
                         "nav",
+
                         "footer"
+
                     ]
 
                 ):
@@ -221,16 +280,22 @@ async def fetch_url(
 
 
 
+
+
             if len(data) < 200:
 
                 return None
 
 
 
+
             SCRAPER_CACHE[url] = data
 
 
+
             return data
+
+
 
 
 
@@ -245,6 +310,7 @@ async def fetch_url(
 
 
             return None
+
 
 
 
@@ -277,7 +343,9 @@ def build_search_urls(query):
         )
 
 
-        urls=[]
+
+        urls = []
+
 
 
         with DDGS() as ddgs:
@@ -313,6 +381,8 @@ def build_search_urls(query):
 
 
 
+
+
         logger.info(
 
             f"Found {len(urls)} URLs"
@@ -320,7 +390,10 @@ def build_search_urls(query):
         )
 
 
+
         return urls
+
+
 
 
 
@@ -341,6 +414,7 @@ def build_search_urls(query):
 
 
 
+
 # ==========================
 # Main Scraper
 # ==========================
@@ -352,6 +426,7 @@ async def async_scrape_for_query(meta):
     query = meta.search_query
 
 
+
     logger.info(
 
         f"Searching: {query}"
@@ -360,7 +435,9 @@ async def async_scrape_for_query(meta):
 
 
 
-    urls = build_search_urls(
+    urls = await asyncio.to_thread(
+
+        build_search_urls,
 
         query
 
@@ -368,7 +445,8 @@ async def async_scrape_for_query(meta):
 
 
 
-    documents=[]
+    documents = []
+
 
 
 
@@ -379,8 +457,11 @@ async def async_scrape_for_query(meta):
             "User-Agent":
 
             (
+
                 "Mozilla/5.0 "
+
                 "(Windows NT 10.0; Win64; x64)"
+
             )
 
         },
@@ -388,6 +469,7 @@ async def async_scrape_for_query(meta):
         follow_redirects=True
 
     ) as client:
+
 
 
 
@@ -411,6 +493,7 @@ async def async_scrape_for_query(meta):
 
 
 
+
         for url, content in zip(
 
             urls,
@@ -427,11 +510,13 @@ async def async_scrape_for_query(meta):
 
 
 
+
             doc_id = hashlib.md5(
 
                 url.encode()
 
             ).hexdigest()
+
 
 
 
@@ -459,11 +544,14 @@ async def async_scrape_for_query(meta):
 
 
 
+
+
     logger.info(
 
         f"Collected {len(documents)} documents"
 
     )
+
 
 
     return documents
