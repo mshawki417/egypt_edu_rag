@@ -29,7 +29,10 @@ sys.path.insert(
 
 
 
-from backend.rag.orchestrator import run_rag_pipeline
+from backend.rag.orchestrator import (
+    run_rag_pipeline,
+    clear_pipeline_cache
+)
 
 
 
@@ -54,12 +57,12 @@ st.set_page_config(
 
 
 
+
 # ==========================
 # CSS
 # ==========================
 
 def load_css():
-
 
     css_file = (
 
@@ -72,7 +75,6 @@ def load_css():
 
 
     if css_file.exists():
-
 
         st.markdown(
 
@@ -101,12 +103,19 @@ load_css()
 
 
 # ==========================
-# Session
+# Session State
 # ==========================
 
 if "messages" not in st.session_state:
 
-    st.session_state.messages=[]
+    st.session_state.messages = []
+
+
+
+if "processing" not in st.session_state:
+
+    st.session_state.processing = False
+
 
 
 
@@ -115,7 +124,6 @@ if "messages" not in st.session_state:
 # ==========================
 # Sidebar
 # ==========================
-
 
 with st.sidebar:
 
@@ -164,9 +172,49 @@ with st.sidebar:
     ):
 
 
-        st.session_state.messages=[]
+        st.session_state.messages = []
+
+
+        try:
+
+            clear_pipeline_cache()
+
+        except Exception:
+
+            pass
+
 
         st.rerun()
+
+
+
+
+
+
+    if st.button(
+
+        "Reset System",
+
+        use_container_width=True
+
+    ):
+
+
+        st.session_state.clear()
+
+
+        try:
+
+            clear_pipeline_cache()
+
+        except Exception:
+
+            pass
+
+
+        st.rerun()
+
+
 
 
 
@@ -205,10 +253,11 @@ unsafe_allow_html=True
 
 
 
+
+
 # ==========================
 # Chat History
 # ==========================
-
 
 for message in st.session_state.messages:
 
@@ -225,7 +274,6 @@ for message in st.session_state.messages:
             message["content"]
 
         )
-
 
 
         if message.get("sources"):
@@ -253,10 +301,10 @@ for message in st.session_state.messages:
 
 
 
+
 # ==========================
 # User Input
 # ==========================
-
 
 query = st.chat_input(
 
@@ -266,7 +314,11 @@ query = st.chat_input(
 
 
 
-if query:
+if query and not st.session_state.processing:
+
+
+    st.session_state.processing = True
+
 
 
     st.session_state.messages.append(
@@ -293,11 +345,13 @@ if query:
 
     ):
 
+
         st.markdown(
 
             query
 
         )
+
 
 
 
@@ -319,8 +373,8 @@ if query:
 
         def update_status(step):
 
-
             status.info(step)
+
 
 
 
@@ -357,6 +411,7 @@ if query:
 
 
 
+
             if result.sources:
 
 
@@ -379,6 +434,7 @@ if query:
 
 
 
+
             st.session_state.messages.append(
 
                 {
@@ -387,9 +443,11 @@ if query:
 
                     "assistant",
 
+
                     "content":
 
                     answer,
+
 
                     "sources":
 
@@ -401,11 +459,45 @@ if query:
 
 
 
+
         except Exception as e:
+
+
+            logger_message = (
+
+                f"Pipeline Error: {str(e)}"
+
+            )
 
 
             status.error(
 
-                f"Pipeline Error: {e}"
+                logger_message
 
             )
+
+
+            st.session_state.messages.append(
+
+                {
+
+                    "role":
+
+                    "assistant",
+
+                    "content":
+
+                    logger_message,
+
+                    "sources":[]
+
+                }
+
+            )
+
+
+
+        finally:
+
+
+            st.session_state.processing = False
