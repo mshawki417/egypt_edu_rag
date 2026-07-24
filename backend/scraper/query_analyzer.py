@@ -18,7 +18,6 @@ Compatible with:
 
 from __future__ import annotations
 
-
 import re
 
 from dataclasses import dataclass, field
@@ -26,8 +25,6 @@ from dataclasses import dataclass, field
 from collections import Counter
 
 from loguru import logger
-
-
 
 # =====================================================
 # Education Stages
@@ -1749,48 +1746,6 @@ def analyze_query(
 
         )
 
-@dataclass
-class QueryMetadata:
-
-    raw_question: str
-
-    normalized: str = ""
-
-    intent: str = "general"
-
-    subject: str | None = None
-
-    stage: str | None = None
-
-    grade: str | None = None
-
-    term: str | None = None
-
-    year: str | None = None
-
-    topic: str | None = None
-
-
-    # New fields
-
-    confidence: float = 0.0
-
-
-    entities: dict = field(
-        default_factory=dict
-    )
-
-
-    keywords: list[str] = field(
-        default_factory=list
-    )
-
-
-    search_query: str = ""
-
-    source_category: str = "general"
-
-    needs_live_search: bool = False
 
 def get_source_priority(meta):
 
