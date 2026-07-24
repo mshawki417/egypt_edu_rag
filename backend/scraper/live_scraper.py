@@ -1580,9 +1580,16 @@ def search_engine(
 
     )
 
+def build_search_urls(query: str):
+    """
+    Backward compatible search wrapper.
 
+    Used by async pipeline.
+    """
 
+    METRICS["search_requests"] += 1
 
+    return search_engine(query)
 
 
 # =====================================================
