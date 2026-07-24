@@ -19,9 +19,29 @@ Compatible:
 - rag chain
 """
 
-
+import hashlib
 from __future__ import annotations
+# =====================================
+# Cache Key Generator
+# =====================================
 
+def cache_key(question: str) -> str:
+    """
+    Generate stable cache key for pipeline cache.
+    """
+
+    if not question:
+        return "empty_query"
+
+    normalized = (
+        question
+        .strip()
+        .lower()
+    )
+
+    return hashlib.sha256(
+        normalized.encode("utf-8")
+    ).hexdigest()
 
 
 # =====================================================
