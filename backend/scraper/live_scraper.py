@@ -112,13 +112,12 @@ class ScraperConfig:
     )
 
 
-    MAX_SEARCH_RESULTS = int(
+    MAX_RESULTS = int(
         os.getenv(
             "SCRAPER_RESULTS",
             20
         )
     )
-
 
     MAX_CONCURRENT_REQUESTS = int(
         os.getenv(
