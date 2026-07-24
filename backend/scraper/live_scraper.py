@@ -144,15 +144,20 @@ class ScraperConfig:
 
 
     USER_AGENT = (
-
-        "EgyptEducationRAG/5.0 "
-
-        "(Educational Knowledge Collector)"
-
+    
+        "Mozilla/5.0 "
+    
+        "(Windows NT 10.0; Win64; x64) "
+    
+        "AppleWebKit/537.36 "
+    
+        "(KHTML, like Gecko) "
+    
+        "Chrome/120.0 Safari/537.36 "
+    
+        "EgyptEducationRAG/5.0"
+    
     )
-
-
-
 
 
 # =====================================================
@@ -301,11 +306,6 @@ class ScrapedContent:
 
 
 
-
-
-
-
-
 @dataclass
 class RawDocument:
     """
@@ -337,12 +337,6 @@ class RawDocument:
 
 
 
-
-
-
-
-
-
 # =====================================================
 # CACHE SYSTEM
 # =====================================================
@@ -355,11 +349,6 @@ SCRAPER_CACHE = TTLCache(
     ttl=ScraperConfig.CACHE_TTL
 
 )
-
-
-
-
-
 
 
 def generate_cache_key(
@@ -379,11 +368,6 @@ def generate_cache_key(
     ).hexdigest()
 
 
-
-
-
-
-
 def generate_content_hash(
     text: str
 ) -> str:
@@ -401,10 +385,6 @@ def generate_content_hash(
         )
 
     ).hexdigest()
-
-
-
-
 
 
 # =====================================================
@@ -436,11 +416,6 @@ def sanitize_log(
     )[:300]
 
 
-
-
-
-
-
 def normalize_url(
     url: str
 ) -> str:
@@ -467,8 +442,6 @@ def normalize_url(
     ):
 
         url = "https://" + url
-
-
 
 
     try:
@@ -506,11 +479,6 @@ def normalize_url(
         return ""
 
 
-
-
-
-
-
 # =====================================================
 # ASYNC LIMITER
 # =====================================================
@@ -525,8 +493,6 @@ _HOST_LIMITERS = defaultdict(
     )
 
 )
-
-
 
 
 def get_host_limiter(
@@ -636,8 +602,6 @@ def is_allowed_domain(
 
 
 
-
-
 # Backward compatibility
 
 def valid_url(
@@ -647,10 +611,6 @@ def valid_url(
     return is_allowed_domain(
         url
     )
-
-
-
-
 
 
 # =====================================================
@@ -667,7 +627,6 @@ async def allowed_by_robots(
 
     Prevents scraping restricted paths.
     """
-
 
     try:
 
@@ -688,7 +647,6 @@ async def allowed_by_robots(
         )
 
 
-
         response = await client.get(
 
             robots_url,
@@ -698,12 +656,9 @@ async def allowed_by_robots(
         )
 
 
-
         if response.status_code != 200:
 
             return True
-
-
 
 
         path = parsed.path.lower()
@@ -731,7 +686,6 @@ async def allowed_by_robots(
                     in line
 
                 )
-
 
 
             if (
@@ -789,11 +743,6 @@ async def allowed_by_robots(
 
 
 
-
-
-
-
-
 # =====================================================
 # CONTENT CLEANING
 # =====================================================
@@ -848,10 +797,6 @@ def clean_text(
 
 
     return text
-
-
-
-
 
 
 # =====================================================
@@ -1100,12 +1045,6 @@ def extract_text_from_html(
 
 
 
-
-
-
-
-
-
 # =====================================================
 # PDF EXTRACTION
 # =====================================================
@@ -1180,9 +1119,6 @@ def extract_pdf_text(
         )
 
 
-
-
-
         return ScrapedContent(
 
             text=content,
@@ -1223,11 +1159,6 @@ def extract_pdf_text(
             text=""
 
         )
-
-
-
-
-
 
 
 # =====================================================
@@ -1456,8 +1387,6 @@ def build_search_queries(meta):
 
 
 
-
-
 # =====================================================
 # DUCKDUCKGO SEARCH LAYER
 # =====================================================
@@ -1668,13 +1597,9 @@ async def parallel_search(
 
 
 
-
-
-
 # =====================================================
 # SOURCE RANKING
 # =====================================================
-
 
 def calculate_source_score(
     url:str
@@ -1734,14 +1659,25 @@ def calculate_source_score(
 
 
 
+# ADD THIS HERE
 
+def calculate_domain_score(
+    url: str
+):
+    """
+    Compatibility wrapper.
+    Used by extraction functions.
+    """
+
+    return calculate_source_score(
+        url
+    )
 
 
 
 def source_priority_score(
     content:ScrapedContent
 ):
-
 
     """
     Final ranking score.
@@ -1752,45 +1688,6 @@ def source_priority_score(
     - Length
     - Content quality
     """
-
-
-    authority = content.source_score
-
-
-
-    length_score=min(
-
-        len(content.text)/10000,
-
-        1.0
-
-    )
-
-
-
-    quality = (
-
-        authority * 0.7
-
-        +
-
-        length_score * 0.3
-
-    )
-
-
-    return round(
-
-        quality,
-
-        3
-
-    )
-
-
-
-
-
 
 # =====================================================
 # PARAGRAPH SPLITTING
