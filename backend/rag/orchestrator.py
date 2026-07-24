@@ -1,53 +1,28 @@
 """
-Production Real-Time RAG Orchestrator
-
-Version:
-Advanced v5
+Production Real-Time RAG Orchestrator v6
 
 Responsibilities:
-- Query understanding
-- Live retrieval orchestration
+- Query analysis
+- Live retrieval
 - Cache management
 - Retriever lifecycle
-- RAG pipeline control
+- Reranking
+- LLM orchestration
 
 Compatible:
-- live_scraper.py v5
-- query_analyzer.py v3
+- live_scraper.py
+- query_analyzer.py
 - chunker.py
 - retriever.py
-- rag chain
+- rag.chain
 """
 
-import hashlib
 from __future__ import annotations
-# =====================================
-# Cache Key Generator
-# =====================================
-
-def cache_key(question: str) -> str:
-    """
-    Generate stable cache key for pipeline cache.
-    """
-
-    if not question:
-        return "empty_query"
-
-    normalized = (
-        question
-        .strip()
-        .lower()
-    )
-
-    return hashlib.sha256(
-        normalized.encode("utf-8")
-    ).hexdigest()
 
 
 # =====================================================
 # Standard Library
 # =====================================================
-
 
 import asyncio
 
@@ -57,14 +32,13 @@ import time
 
 from dataclasses import dataclass
 
-from threading import Lock
+from threading import Lock, Thread
 
 
 
 # =====================================================
 # Third Party
 # =====================================================
-
 
 from cachetools import TTLCache
 
@@ -73,7 +47,7 @@ from loguru import logger
 
 
 # =====================================================
-# Internal Modules
+# Internal Imports
 # =====================================================
 
 
@@ -83,17 +57,14 @@ from backend.scraper.query_analyzer import (
 )
 
 
-
 from backend.scraper.live_scraper import (
     async_scrape_for_query
 )
 
 
-
 from backend.preprocessing.chunker import (
     process_documents
 )
-
 
 
 from backend.retrieval.retriever import (
@@ -102,13 +73,11 @@ from backend.retrieval.retriever import (
 )
 
 
-
 from backend.rag.chain import (
     generate_answer_async,
     stream_answer_async,
     RAGAnswer
 )
-
 
 
 from config.settings import (
@@ -120,52 +89,41 @@ from config.settings import (
 
 
 
-
-
 # =====================================================
 # Pipeline Configuration
 # =====================================================
 
 
-@dataclass(
-    frozen=True
-)
+@dataclass(frozen=True)
 class PipelineConfig:
 
-
     """
-    Global RAG execution settings.
+    Global production configuration.
     """
 
 
-    cache_size:int = 200
+    cache_size: int = 200
 
 
-    cache_ttl:int = 600
+    cache_ttl: int = 600
 
 
-
-    max_retrieve:int = 15
-
+    max_retrieve: int = 20
 
 
-    enable_reranker:bool = True
+    max_context_chars: int = 12000
 
 
-
-    scraper_timeout:int = 60
-
+    scraper_timeout: int = 60
 
 
-    version:str = "rag-v5"
+    version: str = "rag-v6"
 
 
 
 
 
-
-PIPELINE_CFG = PipelineConfig()
-
+PIPELINE_CONFIG = PipelineConfig()
 
 
 
@@ -173,7 +131,43 @@ PIPELINE_CFG = PipelineConfig()
 
 
 # =====================================================
-# Pipeline Cache
+# Cache Key
+# =====================================================
+
+
+def cache_key(question: str) -> str:
+
+    """
+    Generate stable cache key.
+    """
+
+    if not question:
+
+        return "empty"
+
+
+    normalized = (
+        question
+        .strip()
+        .lower()
+    )
+
+
+    return hashlib.sha256(
+
+        normalized.encode(
+            "utf-8"
+        )
+
+    ).hexdigest()
+
+
+
+
+
+
+# =====================================================
+# Thread Safe Pipeline Cache
 # =====================================================
 
 
@@ -181,14 +175,11 @@ class PipelineCache:
 
 
     """
-    Thread safe cache manager.
+    Stores processed chunks.
 
-    Stores:
-
-    - processed chunks
-    - retriever index
-    - metadata
-
+    Thread safe for:
+    - Streamlit
+    - Multi request usage
     """
 
 
@@ -197,14 +188,9 @@ class PipelineCache:
 
         self.cache = TTLCache(
 
-            maxsize=
+            maxsize=PIPELINE_CONFIG.cache_size,
 
-            PIPELINE_CFG.cache_size,
-
-
-            ttl=
-
-            PIPELINE_CFG.cache_ttl
+            ttl=PIPELINE_CONFIG.cache_ttl
 
         )
 
@@ -215,52 +201,13 @@ class PipelineCache:
 
 
 
-    def make_key(
-        self,
-        question:str,
-        strategy:str
-    ):
-
-
-        payload=(
-
-
-            question.strip()
-
-            +
-
-            strategy
-
-            +
-
-            PIPELINE_CFG.version
-
-        )
-
-
-
-        return hashlib.sha256(
-
-            payload.encode(
-                "utf-8"
-            )
-
-        ).hexdigest()
-
-
-
-
-
-
-
     def get(
         self,
-        key
+        key: str
     ):
 
 
         with self.lock:
-
 
             return self.cache.get(
 
@@ -276,16 +223,14 @@ class PipelineCache:
 
     def set(
         self,
-        key,
+        key: str,
         value
     ):
 
 
         with self.lock:
 
-
-            self.cache[key]=value
-
+            self.cache[key] = value
 
 
 
@@ -298,15 +243,11 @@ class PipelineCache:
 
         with self.lock:
 
-
             self.cache.clear()
 
 
-
         logger.info(
-
             "Pipeline cache cleared"
-
         )
 
 
@@ -314,8 +255,22 @@ class PipelineCache:
 
 
 
-PIPELINE_CACHE = PipelineCache()
 
+    def size(self):
+
+
+        with self.lock:
+
+            return len(
+                self.cache
+            )
+
+
+
+
+
+
+PIPELINE_CACHE = PipelineCache()
 
 
 
@@ -331,20 +286,21 @@ class RetrieverManager:
 
 
     """
-    Keeps retriever instances alive.
+    Manage retriever lifecycle.
 
-    Avoids rebuilding vector index
-    for every question.
+    Prevent rebuilding vector index
+    repeatedly.
     """
+
 
 
     def __init__(self):
 
 
-        self.instances={}
+        self.instances = {}
 
+        self.lock = Lock()
 
-        self.lock=Lock()
 
 
 
@@ -352,11 +308,11 @@ class RetrieverManager:
 
     def get(
         self,
-        strategy:RetrieverType
+        strategy: RetrieverType
     ):
 
 
-        key=str(strategy)
+        key = str(strategy)
 
 
 
@@ -368,12 +324,12 @@ class RetrieverManager:
 
                 logger.info(
 
-                    f"Initializing retriever: {key}"
+                    f"Creating retriever: {key}"
 
                 )
 
 
-                self.instances[key]=build_retriever(
+                self.instances[key] = build_retriever(
 
                     strategy
 
@@ -389,50 +345,31 @@ class RetrieverManager:
 
 
 
-    def index(
-        self,
-        strategy,
-        chunks
-    ):
-
-
-        retriever=self.get(
-
-            strategy
-
-        )
-
-
-        retriever.index(
-
-            chunks
-
-        )
-
-
-        return retriever
-
-
-
-
-
-
-
     def clear(self):
 
 
         with self.lock:
 
-
             self.instances.clear()
 
 
-
         logger.info(
-
-            "Retriever manager cleared"
-
+            "Retriever cache cleared"
         )
+
+
+
+
+
+
+    def count(self):
+
+
+        with self.lock:
+
+            return len(
+                self.instances
+            )
 
 
 
@@ -441,6 +378,109 @@ class RetrieverManager:
 
 
 RETRIEVER_MANAGER = RetrieverManager()
+
+
+
+
+
+
+# =====================================================
+# Reranker Manager
+# =====================================================
+
+
+_reranker_model = None
+
+
+_reranker_lock = Lock()
+
+
+
+
+
+def get_reranker():
+
+
+    global _reranker_model
+
+
+
+    if not reranker_cfg.enabled:
+
+        return None
+
+
+
+
+
+    with _reranker_lock:
+
+
+        if _reranker_model is None:
+
+
+            logger.info(
+
+                "Loading CrossEncoder reranker"
+
+            )
+
+
+            from sentence_transformers import CrossEncoder
+
+
+
+            _reranker_model = CrossEncoder(
+
+                reranker_cfg.model,
+
+                max_length=512
+
+            )
+
+
+
+        return _reranker_model
+
+
+
+
+
+
+
+# =====================================================
+# Status Helper
+# =====================================================
+
+
+def update_status(
+    callback,
+    message: str
+):
+
+
+    logger.info(
+        message
+    )
+
+
+    if callback:
+
+
+        try:
+
+            callback(
+                message
+            )
+
+        except Exception:
+
+
+            logger.warning(
+
+                "Status callback failed"
+
+            )
 
 
 
@@ -457,125 +497,109 @@ def run_async_safe(
     coroutine
 ):
 
-
     """
-    Streamlit compatible async runner.
-
-    Handles:
-
-    - existing event loop
-    - normal python execution
-
+    Streamlit compatible async executor.
     """
 
 
     try:
 
+        loop = asyncio.get_running_loop()
 
-        loop=asyncio.get_running_loop()
+
+
+        if loop.is_running():
+
+
+            result = []
+
+            errors = []
+
+
+
+            def runner():
+
+
+                try:
+
+
+                    new_loop = asyncio.new_event_loop()
+
+
+                    asyncio.set_event_loop(
+
+                        new_loop
+
+                    )
+
+
+                    result.append(
+
+                        new_loop.run_until_complete(
+
+                            coroutine
+
+                        )
+
+                    )
+
+
+
+                except Exception as e:
+
+
+                    errors.append(e)
+
+
+
+                finally:
+
+
+                    new_loop.close()
+
+
+
+
+
+            thread = Thread(
+
+                target=runner
+
+            )
+
+
+            thread.start()
+
+
+            thread.join()
+
+
+
+            if errors:
+
+                raise errors[0]
+
+
+
+            return result[0]
 
 
 
     except RuntimeError:
 
 
-        loop=None
+        pass
 
 
 
 
 
-    if loop and loop.is_running():
+    return asyncio.run(
 
+        coroutine
 
-        result=[]
+    )
 
-
-        error=[]
-
-
-
-
-        def runner():
-
-            try:
-
-
-                new_loop=asyncio.new_event_loop()
-
-
-                asyncio.set_event_loop(
-
-                    new_loop
-
-                )
-
-
-                result.append(
-
-                    new_loop.run_until_complete(
-
-                        coroutine
-
-                    )
-
-                )
-
-
-            except Exception as e:
-
-
-                error.append(e)
-
-
-
-            finally:
-
-
-                new_loop.close()
-
-
-
-
-
-
-        import threading
-
-
-
-        thread=threading.Thread(
-
-            target=runner
-
-        )
-
-
-        thread.start()
-
-
-        thread.join()
-
-
-
-        if error:
-
-            raise error[0]
-
-
-
-        return result[0]
-
-
-
-
-    else:
-
-
-        return asyncio.run(
-
-            coroutine
-
-        )
 
 
 
@@ -583,7 +607,7 @@ def run_async_safe(
 
 
 # =====================================================
-# Cache Utilities
+# Cache Management API
 # =====================================================
 
 
@@ -598,46 +622,42 @@ def clear_pipeline_cache():
 
 
 
+def pipeline_cache_stats():
 
 
-def update_status(
-    callback,
-    message:str
-):
+    return {
 
 
-    logger.info(
+        "chunks":
 
-        message
-
-    )
+            PIPELINE_CACHE.size(),
 
 
-    if callback:
+        "retrievers":
+
+            RETRIEVER_MANAGER.count(),
 
 
-        callback(
+        "reranker_loaded":
 
-            message
+            _reranker_model is not None
 
-        )
-
+    }
 # =====================================================
-# LIVE SEARCH + DOCUMENT PROCESSING LAYER
+# LIVE SEARCH COLLECTION
 # =====================================================
 
 
 async def collect_documents(
-    meta,
+    meta: QueryMetadata,
     status_callback=None
 ):
     """
     Collect documents from live scraper.
 
     Failure safe:
-    - scraper errors do not kill pipeline
+    - scraper crash does not stop RAG
     - returns empty list
-    - logs failures
     """
 
     try:
@@ -653,18 +673,23 @@ async def collect_documents(
         )
 
 
+
         if not documents:
 
+
             logger.warning(
-                "Live scraper returned no documents"
+                "No documents returned from scraper"
             )
+
 
             return []
 
 
 
         logger.info(
-            f"Collected {len(documents)} documents"
+
+            f"Scraper returned {len(documents)} documents"
+
         )
 
 
@@ -672,15 +697,19 @@ async def collect_documents(
 
 
 
+
     except Exception as e:
 
 
         logger.exception(
-            f"Scraper failure: {e}"
+
+            f"Live search failed: {e}"
+
         )
 
 
         return []
+
 
 
 
@@ -695,15 +724,13 @@ def process_rag_documents(
     documents
 ):
     """
-    Convert raw documents into
-    optimized RAG chunks.
+    Convert documents into RAG chunks.
 
-    Adds:
+    Includes:
+    - chunk generation
     - duplicate filtering
-    - chunk validation
-    - metadata preservation
+    - validation
     """
-
 
 
     if not documents:
@@ -727,7 +754,9 @@ def process_rag_documents(
 
 
             logger.warning(
-                "No chunks generated"
+
+                "Chunk processor returned empty result"
+
             )
 
 
@@ -737,40 +766,57 @@ def process_rag_documents(
 
 
 
-        # remove duplicate chunks
-
-
-        unique_chunks = {}
+        unique = {}
 
 
 
         for chunk in chunks:
 
 
-            text = chunk.text.strip()
+
+            try:
+
+
+                text = chunk.text.strip()
 
 
 
-            if not text:
+            except Exception:
+
 
                 continue
 
 
 
-            fingerprint = hashlib.sha256(
+
+
+            if not text:
+
+
+                continue
+
+
+
+
+
+            fingerprint = hashlib.md5(
 
                 text.encode(
+
                     "utf-8"
+
                 )
 
             ).hexdigest()
 
 
 
-            if fingerprint not in unique_chunks:
 
 
-                unique_chunks[fingerprint] = chunk
+            if fingerprint not in unique:
+
+
+                unique[fingerprint] = chunk
 
 
 
@@ -778,9 +824,10 @@ def process_rag_documents(
 
         final_chunks = list(
 
-            unique_chunks.values()
+            unique.values()
 
         )
+
 
 
 
@@ -789,15 +836,15 @@ def process_rag_documents(
 
             f"""
 
-Document Processing Complete
+Document Processing:
 
-Raw Documents:
+Documents:
 {len(documents)}
 
-Generated Chunks:
+Chunks:
 {len(chunks)}
 
-Unique Chunks:
+Unique:
 {len(final_chunks)}
 
 """
@@ -805,7 +852,9 @@ Unique Chunks:
         )
 
 
+
         return final_chunks
+
 
 
 
@@ -828,29 +877,48 @@ Unique Chunks:
 
 
 
+
 # =====================================================
-# CHUNK CACHE MANAGEMENT
+# CHUNK CACHE OPERATIONS
 # =====================================================
 
 
 def get_cached_chunks(
-    key
+    question: str
 ):
-
-
     """
-    Thread safe chunk retrieval.
+    Retrieve cached chunks.
     """
 
 
-    with CACHE_LOCK:
+    key = cache_key(
+
+        question
+
+    )
 
 
-        return PIPELINE_CACHE.get(
+    cached = PIPELINE_CACHE.get(
 
-            key
+        key
+
+    )
+
+
+
+    if cached:
+
+
+        logger.info(
+
+            "Using cached chunks"
 
         )
+
+
+
+    return cached
+
 
 
 
@@ -858,11 +926,9 @@ def get_cached_chunks(
 
 
 def save_chunks_cache(
-    key,
+    question: str,
     chunks
 ):
-
-
     """
     Store processed chunks.
     """
@@ -874,10 +940,21 @@ def save_chunks_cache(
 
 
 
-    with CACHE_LOCK:
+    key = cache_key(
+
+        question
+
+    )
 
 
-        PIPELINE_CACHE[key] = chunks
+
+    PIPELINE_CACHE.set(
+
+        key,
+
+        chunks
+
+    )
 
 
 
@@ -892,78 +969,145 @@ def save_chunks_cache(
 
 
 
+
+
 # =====================================================
-# RETRIEVER BUILDING
+# PREPARE RAG CONTEXT
 # =====================================================
 
 
-_retriever_cache = {}
-
-_retriever_lock = Lock()
-
-
-
-def get_or_create_retriever(
-    strategy
+async def prepare_context(
+    question: str,
+    meta: QueryMetadata,
+    status_callback=None
 ):
+    """
+    Complete context preparation.
+
+    Flow:
+
+    Question
+        |
+    Cache
+        |
+    Live Search
+        |
+    Documents
+        |
+    Chunking
+        |
+    Cache Save
 
     """
-    Retriever manager.
-
-    Avoid rebuilding expensive
-    retriever objects.
-    """
 
 
 
-    cache_name = str(
+    # -----------------------------
+    # Cache check
+    # -----------------------------
 
-        strategy
+
+    cached = get_cached_chunks(
+
+        question
 
     )
 
 
 
-    with _retriever_lock:
+    if cached:
 
 
-        if cache_name in _retriever_cache:
-
-
-            logger.info(
-
-                f"Using cached retriever {cache_name}"
-
-            )
-
-
-            return _retriever_cache[cache_name]
+        return cached
 
 
 
 
 
-        logger.info(
 
-            f"Initializing retriever {cache_name}"
+    # -----------------------------
+    # Live Search
+    # -----------------------------
+
+
+    documents = await collect_documents(
+
+        meta,
+
+        status_callback
+
+    )
+
+
+
+    if not documents:
+
+
+        logger.warning(
+
+            "No documents available"
 
         )
 
 
-
-        retriever = build_retriever(
-
-            strategy
-
-        )
+        return []
 
 
 
-        _retriever_cache[cache_name] = retriever
 
 
 
-        return retriever
+    # -----------------------------
+    # Processing
+    # -----------------------------
+
+
+    update_status(
+
+        status_callback,
+
+        "Processing documents"
+
+    )
+
+
+
+    chunks = process_rag_documents(
+
+        documents
+
+    )
+
+
+
+
+    if not chunks:
+
+
+        return []
+
+
+
+
+
+
+    # -----------------------------
+    # Cache save
+    # -----------------------------
+
+
+    save_chunks_cache(
+
+        question,
+
+        chunks
+
+    )
+
+
+
+    return chunks
+
 
 
 
@@ -971,7 +1115,7 @@ def get_or_create_retriever(
 
 
 # =====================================================
-# INDEX OPTIMIZATION
+# RETRIEVER INDEXING
 # =====================================================
 
 
@@ -979,16 +1123,9 @@ def index_chunks(
     retriever,
     chunks
 ):
-
     """
-    Optimized indexing layer.
-
-    Protects against:
-    - empty chunks
-    - duplicate indexing
-    - retriever crashes
+    Index chunks safely.
     """
-
 
 
     if not chunks:
@@ -996,7 +1133,7 @@ def index_chunks(
 
         logger.warning(
 
-            "No chunks available for indexing"
+            "No chunks to index"
 
         )
 
@@ -1025,7 +1162,9 @@ def index_chunks(
         )
 
 
+
         return True
+
 
 
 
@@ -1035,7 +1174,7 @@ def index_chunks(
 
         logger.exception(
 
-            f"Retriever indexing failed: {e}"
+            f"Indexing failed: {e}"
 
         )
 
@@ -1048,282 +1187,58 @@ def index_chunks(
 
 
 
-# =====================================================
-# VECTOR FALLBACK
-# =====================================================
-
-
-async def vector_fallback_search(
-    question,
-    strategy
-):
-
-    """
-    Fallback when live scraping fails.
-
-    Uses previous indexed knowledge.
-
-    Keeps RAG alive when:
-    - website unavailable
-    - scraper blocked
-    - internet failure
-    """
-
-
-
-    try:
-
-
-        logger.warning(
-
-            "Activating vector fallback"
-
-        )
-
-
-
-        retriever = get_or_create_retriever(
-
-            strategy
-
-        )
-
-
-
-        results = retriever.search(
-
-            question,
-
-            retrieval_cfg.top_k_retrieve
-
-        )
-
-
-
-        return results
-
-
-
-
-    except Exception as e:
-
-
-        logger.exception(
-
-            f"Vector fallback failed: {e}"
-
-        )
-
-
-        return []
-
-
-
-
-
-
-
 
 # =====================================================
-# SAFE SOURCE COLLECTION PIPELINE
-# =====================================================
-
-
-async def prepare_context(
-    question,
-    meta,
-    status_callback=None
-):
-
-    """
-    Complete context preparation.
-
-    Flow:
-
-    Query
-       |
-    Live Search
-       |
-    Documents
-       |
-    Chunks
-       |
-    Cache
-       |
-    Retriever Context
-
-
-    """
-
-
-    key = cache_key(
-
-        question
-
-    )
-
-
-
-    # ---------------------------------
-    # Check chunk cache
-    # ---------------------------------
-
-
-    cached_chunks = get_cached_chunks(
-
-        key
-
-    )
-
-
-
-    if cached_chunks:
-
-
-        logger.info(
-
-            "Using chunk cache"
-
-        )
-
-
-        return cached_chunks
-
-
-
-
-
-    # ---------------------------------
-    # Live scraping
-    # ---------------------------------
-
-
-    documents = await collect_documents(
-
-        meta,
-
-        status_callback
-
-    )
-
-
-
-
-
-    if not documents:
-
-
-        logger.warning(
-
-            "No live documents, fallback mode"
-
-        )
-
-
-        return []
-
-
-
-
-
-    # ---------------------------------
-    # Processing
-    # ---------------------------------
-
-
-    chunks = process_rag_documents(
-
-        documents
-
-    )
-
-
-
-    if not chunks:
-
-
-        logger.warning(
-
-            "Chunk generation failed"
-
-        )
-
-
-        return []
-
-
-
-
-
-    # ---------------------------------
-    # Save cache
-    # ---------------------------------
-
-
-    save_chunks_cache(
-
-        key,
-
-        chunks
-
-    )
-
-
-
-    return chunks
-
-# =====================================================
-# RETRIEVAL PIPELINE
+# RETRIEVAL LAYER
 # =====================================================
 
 
 async def retrieve_context(
-    question,
+    question: str,
     chunks,
-    strategy,
+    strategy: RetrieverType,
     status_callback=None
 ):
     """
-    Build retriever context.
+    Retrieve relevant chunks.
 
-    Flow:
-
-    Chunks
-       |
-    Retriever Index
-       |
-    Semantic Search
-       |
-    Keyword Search
-       |
-    Hybrid Ranking
-
+    Supports:
+    - vector search
+    - hybrid retrieval
     """
 
+
+
     if not chunks:
+
 
         return []
 
 
-
-    update_status(
-
-        status_callback,
-
-        "Building retrieval index"
-
-    )
 
 
 
     try:
 
 
-        retriever = get_or_create_retriever(
+        update_status(
+
+            status_callback,
+
+            "Building retriever"
+
+        )
+
+
+
+
+        retriever = RETRIEVER_MANAGER.get(
 
             strategy
 
         )
+
+
 
 
 
@@ -1340,26 +1255,11 @@ async def retrieve_context(
         if not indexed:
 
 
-            logger.warning(
-
-                "Retriever indexing skipped"
-
-            )
-
-
             return []
 
 
 
 
-
-        retrieve_k = min(
-
-            retrieval_cfg.top_k_retrieve,
-
-            20
-
-        )
 
 
 
@@ -1374,28 +1274,28 @@ async def retrieve_context(
 
 
 
-        results = retriever.search(
 
-            question,
+        top_k = min(
 
-            retrieve_k
+            retrieval_cfg.top_k_retrieve,
+
+            PIPELINE_CONFIG.max_retrieve
 
         )
 
 
 
 
-        if not results:
 
 
-            logger.warning(
+        results = retriever.search(
 
-                "No retrieval results"
+            question,
 
-            )
+            top_k
 
+        )
 
-            return []
 
 
 
@@ -1432,6 +1332,61 @@ async def retrieve_context(
 
 
 
+# =====================================================
+# VECTOR FALLBACK
+# =====================================================
+
+
+async def vector_fallback_search(
+    question: str,
+    strategy: RetrieverType
+):
+    """
+    Use existing retriever memory
+    if live search fails.
+    """
+
+
+    try:
+
+
+        logger.warning(
+
+            "Using vector fallback"
+
+        )
+
+
+
+        retriever = RETRIEVER_MANAGER.get(
+
+            strategy
+
+        )
+
+
+
+        return retriever.search(
+
+            question,
+
+            retrieval_cfg.top_k_retrieve
+
+        )
+
+
+
+    except Exception as e:
+
+
+        logger.exception(
+
+            f"Vector fallback failed: {e}"
+
+        )
+
+
+        return []
 
 # =====================================================
 # RERANKING SYSTEM
@@ -1439,7 +1394,7 @@ async def retrieve_context(
 
 
 async def rerank_results(
-    question,
+    question: str,
     results,
     status_callback=None
 ):
@@ -1448,18 +1403,14 @@ async def rerank_results(
 
     Improves:
     - semantic relevance
-    - answer accuracy
-    - citation quality
-
+    - answer quality
+    - source selection
     """
-
 
 
     if not results:
 
-
         return []
-
 
 
 
@@ -1472,21 +1423,30 @@ async def rerank_results(
 
 
 
-    update_status(
-
-        status_callback,
-
-        "Reranking documents"
-
-    )
-
-
-
 
     try:
 
 
+        update_status(
+
+            status_callback,
+
+            "Reranking results"
+
+        )
+
+
+
         reranker = get_reranker()
+
+
+
+        if not reranker:
+
+
+            return results
+
+
 
 
 
@@ -1497,18 +1457,16 @@ async def rerank_results(
         for item in results:
 
 
-            text = (
+            try:
 
-                item.chunk.text
 
-                if hasattr(
-                    item,
-                    "chunk"
-                )
+                text = item.chunk.text
 
-                else str(item)
 
-            )
+            except Exception:
+
+
+                text = ""
 
 
 
@@ -1528,6 +1486,8 @@ async def rerank_results(
 
 
 
+
+
         scores = reranker.predict(
 
             pairs,
@@ -1541,7 +1501,10 @@ async def rerank_results(
 
 
 
-        for item,score in zip(
+
+
+
+        for item, score in zip(
 
             results,
 
@@ -1561,9 +1524,10 @@ async def rerank_results(
 
 
 
+
         results.sort(
 
-            key=lambda x:x.score,
+            key=lambda x: x.score,
 
             reverse=True
 
@@ -1573,7 +1537,8 @@ async def rerank_results(
 
 
 
-        top_results = results[
+
+        final_results = results[
 
             :reranker_cfg.top_k
 
@@ -1584,13 +1549,14 @@ async def rerank_results(
 
         logger.info(
 
-            f"Reranked {len(top_results)} chunks"
+            f"Reranking finished: {len(final_results)} chunks"
 
         )
 
 
 
-        return top_results
+        return final_results
+
 
 
 
@@ -1601,12 +1567,14 @@ async def rerank_results(
 
         logger.exception(
 
-            f"Reranker failed: {e}"
+            f"Reranker error: {e}"
 
         )
 
 
+
         return results[:reranker_cfg.top_k]
+
 
 
 
@@ -1622,39 +1590,37 @@ async def rerank_results(
 def build_generation_context(
     retrieved
 ):
-
     """
-    Prepare final context
-    sent to LLM.
+    Prepare clean context for LLM.
 
     Removes:
-    - duplicated text
-    - empty chunks
-    - excessive length
-
+    - duplicate chunks
+    - empty text
+    - oversized context
     """
 
 
 
     if not retrieved:
 
+
         return ""
 
 
 
 
-    contexts=[]
+    contexts = []
 
-    seen=set()
+    seen = set()
 
 
-
-    max_chars = 12000
-
+    current_size = 0
 
 
 
-    current_length = 0
+    max_size = PIPELINE_CONFIG.max_context_chars
+
+
 
 
 
@@ -1702,9 +1668,13 @@ def build_generation_context(
 
 
 
+
         if fingerprint in seen:
 
+
             continue
+
+
 
 
 
@@ -1718,17 +1688,18 @@ def build_generation_context(
 
 
 
+
+
         if (
 
-            current_length +
-
-            len(text)
+            current_size + len(text)
 
             >
 
-            max_chars
+            max_size
 
         ):
+
 
             break
 
@@ -1743,8 +1714,9 @@ def build_generation_context(
         )
 
 
+        current_size += len(text)
 
-        current_length += len(text)
+
 
 
 
@@ -1763,67 +1735,141 @@ def build_generation_context(
 
 
 
+
+
+# =====================================================
+# SOURCE BUILDER
+# =====================================================
+
+
+def build_sources(
+    retrieved
+):
+    """
+    Prepare citation metadata.
+    """
+
+
+
+    sources = []
+
+
+
+    for item in retrieved:
+
+
+
+        try:
+
+
+            chunk = item.chunk
+
+
+
+            sources.append(
+
+                {
+
+                    "title":
+
+                        getattr(
+
+                            chunk,
+
+                            "title",
+
+                            ""
+
+                        ),
+
+
+                    "url":
+
+                        getattr(
+
+                            chunk,
+
+                            "source_url",
+
+                            ""
+
+                        ),
+
+
+                    "score":
+
+                        round(
+
+                            float(
+
+                                getattr(
+
+                                    item,
+
+                                    "score",
+
+                                    0
+
+                                )
+
+                            ),
+
+                            4
+
+                        )
+
+                }
+
+            )
+
+
+
+        except Exception:
+
+
+            continue
+
+
+
+
+    return sources
+
+
+
+
+
+
+
+
 # =====================================================
 # MAIN ASYNC RAG PIPELINE
 # =====================================================
 
 
 async def run_rag_pipeline_async(
-
     question: str,
-
-    retriever_strategy: RetrieverType="hybrid",
-
+    retriever_strategy: RetrieverType = "hybrid",
     status_callback=None,
-
     stream=False
-
 ):
-
-
     """
-    Production RAG pipeline.
+    Production RAG execution.
 
-    Complete Flow:
+    Flow:
 
     Question
-
-       |
-
-    Query Analyzer
-
-       |
-
-    Cache
-
-       |
-
+        |
+    Analyzer
+        |
     Live Search
-
-       |
-
-    Chunk Processing
-
-       |
-
+        |
+    Chunk Cache
+        |
     Retriever
-
-       |
-
-    Hybrid Search
-
-       |
-
+        |
     Reranker
-
-       |
-
-    Context Builder
-
-       |
-
+        |
     LLM
-
 
     """
 
@@ -1831,6 +1877,11 @@ async def run_rag_pipeline_async(
 
     try:
 
+
+
+        # -----------------------------
+        # Query Analysis
+        # -----------------------------
 
 
         update_status(
@@ -1856,7 +1907,29 @@ async def run_rag_pipeline_async(
 
         logger.info(
 
-            f"Query metadata: {meta}"
+            {
+
+                "query":
+
+                    question,
+
+                "intent":
+
+                    meta.intent,
+
+                "subject":
+
+                    meta.subject,
+
+                "grade":
+
+                    meta.grade,
+
+                "confidence":
+
+                    meta.confidence
+
+            }
 
         )
 
@@ -1864,9 +1937,11 @@ async def run_rag_pipeline_async(
 
 
 
-        # ---------------------------------
-        # Prepare Context
-        # ---------------------------------
+
+
+        # -----------------------------
+        # Context Preparation
+        # -----------------------------
 
 
         chunks = await prepare_context(
@@ -1883,36 +1958,13 @@ async def run_rag_pipeline_async(
 
 
 
-        # ---------------------------------
-        # If live failed
-        # use existing vector memory
-        # ---------------------------------
+
+        # -----------------------------
+        # Retrieval
+        # -----------------------------
 
 
-        if not chunks:
-
-
-            update_status(
-
-                status_callback,
-
-                "Using vector fallback"
-
-            )
-
-
-            retrieved = await vector_fallback_search(
-
-                question,
-
-                retriever_strategy
-
-            )
-
-
-
-        else:
-
+        if chunks:
 
 
             retrieved = await retrieve_context(
@@ -1926,6 +1978,22 @@ async def run_rag_pipeline_async(
                 status_callback
 
             )
+
+
+
+        else:
+
+
+            retrieved = await vector_fallback_search(
+
+                question,
+
+                retriever_strategy
+
+            )
+
+
+
 
 
 
@@ -1959,9 +2027,10 @@ async def run_rag_pipeline_async(
 
 
 
-        # ---------------------------------
+
+        # -----------------------------
         # Reranking
-        # ---------------------------------
+        # -----------------------------
 
 
         retrieved = await rerank_results(
@@ -1973,6 +2042,8 @@ async def run_rag_pipeline_async(
             status_callback
 
         )
+
+
 
 
 
@@ -1996,11 +2067,7 @@ async def run_rag_pipeline_async(
 
             return RAGAnswer(
 
-                answer=(
-
-                    "لا يوجد سياق كافٍ."
-
-                ),
+                answer="لا يوجد سياق مناسب.",
 
                 sources=[],
 
@@ -2020,9 +2087,10 @@ async def run_rag_pipeline_async(
 
 
 
-        # ---------------------------------
+
+        # -----------------------------
         # Generation
-        # ---------------------------------
+        # -----------------------------
 
 
         update_status(
@@ -2053,6 +2121,7 @@ async def run_rag_pipeline_async(
 
 
 
+
         answer = await generate_answer_async(
 
             question,
@@ -2065,44 +2134,9 @@ async def run_rag_pipeline_async(
 
 
 
-        answer.sources = [
 
 
-            {
-
-                "url":
-
-                item.chunk.metadata.get(
-
-                    "source",
-
-                    ""
-
-                ),
-
-                "score":
-
-                getattr(
-
-                    item,
-
-                    "score",
-
-                    0
-
-                )
-
-            }
-
-
-            for item in retrieved
-
-        ]
-
-
-
-
-        answer.chunks_retrieved = len(
+        answer.sources = build_sources(
 
             retrieved
 
@@ -2117,9 +2151,19 @@ async def run_rag_pipeline_async(
         )
 
 
+        answer.chunks_retrieved = len(
+
+            retrieved
+
+        )
+
+
+
 
 
         return answer
+
+
 
 
 
@@ -2130,7 +2174,7 @@ async def run_rag_pipeline_async(
 
         logger.exception(
 
-            f"Pipeline crashed: {e}"
+            f"RAG pipeline crashed: {e}"
 
         )
 
@@ -2140,7 +2184,7 @@ async def run_rag_pipeline_async(
 
             answer=(
 
-                "حدث خطأ أثناء معالجة السؤال."
+                "حدث خطأ أثناء تشغيل نظام الإجابة."
 
             ),
 
@@ -2153,100 +2197,23 @@ async def run_rag_pipeline_async(
         )
 
 # =====================================================
-# STREAMLIT SAFE ASYNC WRAPPER
-# =====================================================
-
-
-def run_async_safe(coro):
-    """
-    Execute async coroutine safely.
-
-    Compatible with:
-    - Streamlit
-    - Jupyter
-    - FastAPI
-    - Normal Python
-
-    """
-
-    try:
-
-
-        loop = asyncio.get_running_loop()
-
-
-
-        # Already running loop
-
-        if loop.is_running():
-
-
-            import nest_asyncio
-
-
-            nest_asyncio.apply()
-
-
-
-            return asyncio.run(
-
-                coro
-
-            )
-
-
-
-    except RuntimeError:
-
-
-        pass
-
-
-
-
-
-    return asyncio.run(
-
-        coro
-
-    )
-
-
-
-
-
-
-
-# =====================================================
-# SYNC PIPELINE ENTRY
+# STREAMLIT SAFE SYNC WRAPPER
 # =====================================================
 
 
 def run_rag_pipeline(
-
-    question,
-
+    question: str,
     retriever_strategy="hybrid",
-
     stream=False,
-
     status_callback=None
-
 ):
-
     """
-    Synchronous API.
+    Public synchronous API.
 
     Used by:
-
-    Streamlit frontend
-
-    Example:
-
-        answer = run_rag_pipeline(
-            "ما هو قانون نيوتن الثاني؟"
-        )
-
+    - Streamlit frontend
+    - API endpoints
+    - CLI testing
     """
 
 
@@ -2273,40 +2240,28 @@ def run_rag_pipeline(
 
 
 
+
 # =====================================================
-# CACHE MANAGEMENT
+# CACHE CLEAR API
 # =====================================================
 
 
 def clear_pipeline_cache():
 
     """
-    Clear:
-
-    - Chunk cache
-    - Retriever cache
-
+    Clear all runtime caches.
     """
 
 
-
-    with CACHE_LOCK:
-
-
-        PIPELINE_CACHE.clear()
+    PIPELINE_CACHE.clear()
 
 
-
-    with _retriever_lock:
-
-
-        _retriever_cache.clear()
-
+    RETRIEVER_MANAGER.clear()
 
 
     logger.info(
 
-        "All pipeline caches cleared"
+        "All pipeline resources cleared"
 
     )
 
@@ -2316,70 +2271,17 @@ def clear_pipeline_cache():
 
 
 
-def pipeline_cache_size():
-
-    """
-    Return cache statistics.
-    """
-
-    with CACHE_LOCK:
-
-
-        chunks = len(
-
-            PIPELINE_CACHE
-
-        )
-
-
-    with _retriever_lock:
-
-
-        retrievers = len(
-
-            _retriever_cache
-
-        )
-
-
-
-    return {
-
-
-        "chunk_cache":
-
-        chunks,
-
-
-        "retriever_cache":
-
-        retrievers
-
-    }
-
-
-
-
-
-
-
 # =====================================================
-# QUERY METADATA API
+# PIPELINE METADATA
 # =====================================================
 
 
 def get_pipeline_metadata(
-
-    question:str
-
+    question: str
 ):
-
     """
-    Returns query understanding.
-
-    Used by frontend
-    before execution.
-
+    Returns query understanding
+    before running pipeline.
     """
 
 
@@ -2398,41 +2300,67 @@ def get_pipeline_metadata(
         return {
 
 
-            "grade":
+            "query":
 
-            meta.grade,
-
-
-            "subject":
-
-            meta.subject,
+                question,
 
 
-            "topic":
+            "normalized":
 
-            meta.topic,
+                meta.normalized,
 
 
             "intent":
 
-            meta.intent,
+                meta.intent,
+
+
+            "subject":
+
+                meta.subject,
+
+
+            "stage":
+
+                meta.stage,
+
+
+            "grade":
+
+                meta.grade,
+
+
+            "topic":
+
+                meta.topic,
 
 
             "keywords":
 
-            meta.keywords,
+                meta.keywords,
+
+
+            "search_query":
+
+                meta.search_query,
+
+
+            "source_category":
+
+                meta.source_category,
 
 
             "live_search":
 
-            meta.needs_live_search,
+                meta.needs_live_search,
 
 
-            "query":
+            "confidence":
 
-            meta.search_query
+                meta.confidence
 
         }
+
 
 
 
@@ -2442,12 +2370,20 @@ def get_pipeline_metadata(
 
         logger.exception(
 
-            f"Metadata error: {e}"
+            f"Metadata generation failed: {e}"
 
         )
 
 
-        return {}
+        return {
+
+            "error":
+
+                str(e)
+
+        }
+
+
 
 
 
@@ -2456,21 +2392,24 @@ def get_pipeline_metadata(
 
 
 # =====================================================
-# METRICS REPORT
+# PIPELINE METRICS
 # =====================================================
+
+
+_PIPELINE_START_TIME = time.time()
+
+
+
 
 
 def get_pipeline_metrics():
-
     """
     Runtime monitoring.
 
-    Useful for:
-
+    Used for:
     - debugging
-    - production dashboard
-    - logging
-
+    - dashboard
+    - health monitoring
     """
 
 
@@ -2478,32 +2417,54 @@ def get_pipeline_metrics():
     return {
 
 
+        "version":
+
+            PIPELINE_CONFIG.version,
+
+
+        "uptime_seconds":
+
+            round(
+
+                time.time()
+
+                -
+
+                _PIPELINE_START_TIME,
+
+                2
+
+            ),
+
+
+
         "cache":
 
-        pipeline_cache_size(),
+
+            pipeline_cache_stats(),
 
 
 
-        "retriever_loaded":
 
-        list(
+        "retrievers_loaded":
 
-            _retriever_cache.keys()
-
-        ),
+            RETRIEVER_MANAGER.count(),
 
 
 
         "reranker_loaded":
 
-        _reranker_model is not None,
+            _reranker_model is not None,
+
 
 
         "status":
 
-        "running"
+            "healthy"
 
     }
+
+
 
 
 
@@ -2517,43 +2478,52 @@ def get_pipeline_metrics():
 
 
 def pipeline_health():
-
     """
-    Production health endpoint.
-
+    Production health status.
     """
+
+
 
     return {
 
 
         "pipeline":
 
-        "healthy",
+            "online",
 
 
-        "scraper":
 
-        "enabled",
+        "version":
+
+            PIPELINE_CONFIG.version,
+
+
+
+        "cache":
+
+            "ready",
+
 
 
         "retriever":
 
-        "ready",
+            "ready",
+
 
 
         "reranker":
 
-        (
+            (
 
-            "loaded"
+                "loaded"
 
-            if _reranker_model
+                if _reranker_model
 
-            else
+                else
 
-            "lazy"
+                "lazy"
 
-        )
+            )
 
     }
 
@@ -2563,8 +2533,10 @@ def pipeline_health():
 
 
 
+
+
 # =====================================================
-# PRODUCTION TEST ENTRY
+# TEST FUNCTION
 # =====================================================
 
 
@@ -2575,7 +2547,7 @@ async def test_pipeline():
 
     Run:
 
-    python orchestrator.py
+        python orchestrator.py
 
     """
 
@@ -2607,13 +2579,22 @@ async def test_pipeline():
 
 
 
+    print(
+
+        result.sources
+
+    )
+
+
+
+
 
 
 
 
 
 # =====================================================
-# MAIN
+# PRODUCTION ENTRY POINT
 # =====================================================
 
 
@@ -2625,4 +2606,6 @@ if __name__ == "__main__":
         test_pipeline()
 
     )
+
+
 
