@@ -222,10 +222,6 @@ ALLOWED_DOMAINS = list(
 )
 
 
-
-
-
-
 # =====================================================
 # METRICS
 # =====================================================
@@ -243,6 +239,9 @@ METRICS = {
     "fetch_failed": 0,
 
 
+    "fetch_errors": 0,
+
+
     "cache_hits": 0,
 
 
@@ -255,14 +254,12 @@ METRICS = {
     "search_requests": 0,
 
 
+    "search_results": 0,
+
+
     "duplicate_removed": 0
 
 }
-
-
-
-
-
 
 
 # =====================================================
@@ -1068,7 +1065,7 @@ def extract_text_from_html(
 
             doc_type="web",
 
-            source_score=get_domain_score(
+            source_score=calculate_domain_score(
 
                 url
 
@@ -1194,7 +1191,7 @@ def extract_pdf_text(
 
             doc_type="pdf",
 
-            source_score=get_domain_score(
+            source_score=calculate_domain_score(
 
                 url
 
@@ -1547,13 +1544,9 @@ def search_engine(
                     )
 
 
+        METRICS["search_requests"] += 1
 
-        METRICS[
-
-            "search_results"
-
-        ] += len(urls)
-
+        METRICS["search_results"] += len(urls)
 
 
     except Exception as e:
