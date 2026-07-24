@@ -1,6 +1,24 @@
 """
 High Performance Async RAG Chain
-OpenRouter + Context Optimization
+Production OpenRouter + Context Optimization
+
+Version:
+Advanced v2
+
+Features:
+- Async optimized LLM calls
+- OpenRouter integration
+- Retry with exponential backoff
+- Streaming support
+- Context compression
+- Source citation
+- Production logging
+- Safe fallback handling
+
+Compatible with:
+- orchestrator.py
+- retriever.py
+- RetrievedChunk
 """
 
 
@@ -9,8 +27,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
+import time
 
 from dataclasses import dataclass
+from typing import AsyncGenerator
+
 
 import httpx
 
@@ -19,10 +41,18 @@ from loguru import logger
 
 from config.settings import llm_cfg
 
-from backend.retrieval.retriever import RetrievedChunk
+
+from backend.retrieval.retriever import (
+    RetrievedChunk
+)
 
 
 
+
+
+# =====================================================
+# CONFIGURATION
+# =====================================================
 
 
 OPENROUTER_URL = (
@@ -30,42 +60,55 @@ OPENROUTER_URL = (
 )
 
 
-MAX_RETRIES = 3
+DEFAULT_MODEL = (
+    "meta-llama/llama-3.1-8b-instruct:free"
+)
+
+
+MAX_RETRIES = 4
+
+
+REQUEST_TIMEOUT = 120
+
+
+MAX_CONTEXT_CHUNKS = 5
+
+
+MAX_CONTEXT_LENGTH = 12000
 
 
 
 
 
-# =========================
-# Prompt
-# =========================
+# =====================================================
+# SYSTEM PROMPT
+# =====================================================
 
 
 BASE_PROMPT = """
-You are an AI assistant specialized in Egyptian education and academic knowledge.
 
-Answering rules:
+أنت مساعد ذكاء اصطناعي متخصص في التعليم المصري.
 
-- Use the retrieved context from the RAG system as the primary source of information.
-- If the answer exists in the provided context, answer directly and accurately.
-- If the context is incomplete but you have reliable general knowledge, provide the answer while clearly indicating that it is based on general knowledge.
-- Do not invent facts, dates, names, or statistics.
-- Do not answer with "There is not enough information" if you have a confident and correct answer.
-- If the information is truly unavailable, state that clearly.
-- Answer in simple Modern Standard Arabic.
-- Keep answers concise, structured, and educational.
-- Use bullet points when helpful.
-- For historical or educational questions, provide accurate explanations with important dates and details when available.
-- Always prioritize correctness over guessing.
+قواعد الإجابة:
+
+- استخدم سياق RAG كمصدر أساسي.
+- لا تخترع معلومات غير موجودة.
+- إذا كانت المعلومات غير موجودة صرح بذلك.
+- استخدم اللغة العربية الفصحى المبسطة.
+- اجعل الإجابة منظمة وواضحة.
+- استخدم النقاط عند الحاجة.
+- عند وجود مصادر استخدمها لدعم الإجابة.
+- ركز على الدقة التعليمية.
 
 """
 
 
 
 
-# =========================
-# Response Schema
-# =========================
+
+# =====================================================
+# RESPONSE MODEL
+# =====================================================
 
 
 @dataclass
@@ -87,27 +130,199 @@ class RAGAnswer:
 
 
 
-# =========================
-# Context Builder
-# =========================
+# =====================================================
+# LLM CLIENT
+# =====================================================
+
+
+class OpenRouterClient:
+
+
+    """
+    Production OpenRouter async client.
+    """
+
+
+    def __init__(self):
+
+
+        self.url = OPENROUTER_URL
+
+
+        self.timeout = httpx.Timeout(
+
+            REQUEST_TIMEOUT
+
+        )
+
+
+
+    def get_headers(self):
+
+
+        if not llm_cfg.openrouter_api_key:
+
+
+            raise ValueError(
+
+                "Missing OPENROUTER_API_KEY"
+
+            )
+
+
+        return {
+
+
+            "Authorization":
+
+            f"Bearer {llm_cfg.openrouter_api_key}",
+
+
+
+            "Content-Type":
+
+            "application/json",
+
+
+
+            "HTTP-Referer":
+
+            "https://github.com/egypt-edu-rag",
+
+
+
+            "X-Title":
+
+            "Egypt Education RAG"
+
+        }
+
+
+
+
+
+    def get_model(self):
+
+
+        if (
+
+            hasattr(
+
+                llm_cfg,
+
+                "model"
+
+            )
+
+            and
+
+            llm_cfg.model
+
+        ):
+
+
+            return llm_cfg.model.strip()
+
+
+
+        return DEFAULT_MODEL
+
+
+
+
+
+
+
+    async def close(self):
+
+        pass
+
+# =====================================================
+# CONTEXT BUILDER
+# =====================================================
+
+
+def clean_text(text: str) -> str:
+
+
+    """
+    Remove noisy spaces
+    and normalize context.
+    """
+
+
+    if not text:
+
+        return ""
+
+
+    text = text.replace(
+
+        "\x00",
+
+        ""
+
+    )
+
+
+    text = " ".join(
+
+        text.split()
+
+    )
+
+
+    return text.strip()
+
+
+
+
 
 
 def build_context(
 
     chunks: list[RetrievedChunk],
 
-    max_chunks=4
+    max_chunks: int = MAX_CONTEXT_CHUNKS
 
-):
+) -> str:
+
+
+    """
+    Build optimized RAG context.
+
+    Keeps:
+    - Source
+    - Title
+    - Content
+
+    Prevents:
+    - Huge prompts
+    - Duplicate text
+    """
+
+
+
+    if not chunks:
+
+        return ""
+
+
 
 
     selected = chunks[:max_chunks]
 
 
-    parts = []
+
+    context_parts = []
 
 
-    for idx, item in enumerate(
+    current_length = 0
+
+
+
+
+    for index, item in enumerate(
 
         selected,
 
@@ -116,14 +331,30 @@ def build_context(
     ):
 
 
+
         chunk = item.chunk
 
 
-        parts.append(
 
-            f"""
+        text = clean_text(
 
-[{idx}]
+            chunk.text
+
+        )
+
+
+
+        if not text:
+
+            continue
+
+
+
+
+
+        block = f"""
+
+[{index}]
 
 المصدر:
 {chunk.source_url}
@@ -134,67 +365,51 @@ def build_context(
 
 
 المحتوى:
-
-{chunk.text}
+{text}
 
 """
 
+
+
+        if (
+
+            current_length
+
+            +
+
+            len(block)
+
+            >
+
+            MAX_CONTEXT_LENGTH
+
+        ):
+
+            break
+
+
+
+
+
+        context_parts.append(
+
+            block
+
         )
 
 
-    return "\n------------\n".join(parts)
+        current_length += len(block)
 
 
 
 
 
 
+    return "\n----------------\n".join(
 
-# =========================
-# Headers
-# =========================
+        context_parts
 
-
-def headers():
-
-
-    if not llm_cfg.openrouter_api_key:
-
-
-        raise ValueError(
-
-            "OPENROUTER_API_KEY is missing"
-
-        )
-
-
-
-    return {
-
-
-        "Authorization":
-
-        f"Bearer {llm_cfg.openrouter_api_key}",
-
-
-
-        "Content-Type":
-
-        "application/json",
-
-
-
-        "HTTP-Referer":
-
-        "https://github.com/egypt-edu-rag",
-
-
-
-        "X-Title":
-
-        "Egypt Education RAG"
-
-    }
+    )
 
 
 
@@ -203,42 +418,21 @@ def headers():
 
 
 
-# =========================
-# Payload
-# =========================
+
+# =====================================================
+# PAYLOAD BUILDER
+# =====================================================
 
 
-def payload(
+def build_payload(
 
-    question,
+    question: str,
 
-    context,
+    context: str,
 
-    stream=False
+    stream: bool = False
 
 ):
-
-
-    model_name = (
-
-        llm_cfg.model.strip()
-
-        if llm_cfg.model
-
-        else
-
-        "meta-llama/llama-3.1-8b-instruct:free"
-
-    )
-
-
-
-    logger.info(
-
-        f"OpenRouter model selected: {model_name}"
-
-    )
-
 
 
     return {
@@ -246,19 +440,35 @@ def payload(
 
         "model":
 
-        model_name,
+        OpenRouterClient().get_model(),
 
 
 
         "temperature":
 
-        llm_cfg.temperature,
+        getattr(
+
+            llm_cfg,
+
+            "temperature",
+
+            0.2
+
+        ),
 
 
 
         "max_tokens":
 
-        llm_cfg.max_tokens,
+        getattr(
+
+            llm_cfg,
+
+            "max_tokens",
+
+            1200
+
+        ),
 
 
 
@@ -272,12 +482,15 @@ def payload(
 
         [
 
+
+
             {
 
 
                 "role":
 
                 "system",
+
 
 
                 "content":
@@ -287,12 +500,15 @@ def payload(
             },
 
 
+
+
             {
 
 
                 "role":
 
                 "user",
+
 
 
                 "content":
@@ -304,9 +520,11 @@ def payload(
 {question}
 
 
-السياق:
+
+المصادر المتاحة:
 
 {context}
+
 
 
 الإجابة:
@@ -314,6 +532,8 @@ def payload(
 """
 
             }
+
+
 
         ]
 
@@ -325,29 +545,86 @@ def payload(
 
 
 
-# =========================
-# OpenRouter Call
-# =========================
 
 
-async def call_openrouter(
+# =====================================================
+# RETRY ENGINE
+# =====================================================
 
-    client,
 
-    question,
+async def retry_wait(
 
-    context
+    attempt: int
 
 ):
 
 
-    request_payload = payload(
+    """
+    Exponential backoff
+    with random jitter.
+    """
+
+
+    delay = (
+
+        (2 ** attempt)
+
+        +
+
+        random.uniform(
+
+            0,
+
+            1
+
+        )
+
+    )
+
+
+    await asyncio.sleep(
+
+        delay
+
+    )
+
+
+
+
+
+
+
+
+
+# =====================================================
+# OPENROUTER REQUEST
+# =====================================================
+
+
+async def request_openrouter(
+
+    client: httpx.AsyncClient,
+
+    question: str,
+
+    context: str
+
+):
+
+
+    payload = build_payload(
 
         question,
 
         context
 
     )
+
+
+
+    router = OpenRouterClient()
+
+
 
 
 
@@ -359,123 +636,433 @@ async def call_openrouter(
 
 
 
-        response = await client.post(
-
-            OPENROUTER_URL,
-
-            headers=headers(),
-
-            json=request_payload
-
-        )
+        try:
 
 
 
-        if response.status_code == 429:
+            response = await client.post(
 
+                OPENROUTER_URL,
 
-            retry_after = response.headers.get(
+                headers=
 
-                "retry-after"
+                router.get_headers(),
+
+                json=payload
 
             )
 
 
 
-            wait_time = (
 
-                int(retry_after)
 
-                if retry_after
 
-                else
 
-                5 * (attempt + 1)
+            # Rate limit
 
-            )
+            if response.status_code == 429:
+
+
+
+                logger.warning(
+
+                    "OpenRouter rate limit reached"
+
+                )
+
+
+
+                await retry_wait(
+
+                    attempt
+
+                )
+
+
+                continue
+
+
+
+
+
+
+
+
+            # Temporary server errors
+
+            if response.status_code >= 500:
+
+
+
+                logger.warning(
+
+                    f"OpenRouter server error {response.status_code}"
+
+                )
+
+
+
+                await retry_wait(
+
+                    attempt
+
+                )
+
+
+                continue
+
+
+
+
+
+
+
+            if response.status_code == 401:
+
+
+
+                raise RuntimeError(
+
+                    "Invalid OpenRouter API Key"
+
+                )
+
+
+
+
+
+
+
+            response.raise_for_status()
+
+
+
+            return response.json()
+
+
+
+
+
+
+
+        except (
+
+            httpx.TimeoutException,
+
+            httpx.NetworkError
+
+        ) as e:
 
 
 
             logger.warning(
 
-                f"OpenRouter 429. Retry after {wait_time}s"
+                f"Network error attempt {attempt+1}: {e}"
+
+            )
+
+
+            await retry_wait(
+
+                attempt
 
             )
 
 
 
-            await asyncio.sleep(
-
-                wait_time
-
-            )
-
-
-            continue
 
 
 
 
-        if response.status_code >= 400:
+        except Exception:
 
 
-            logger.error(
-
-                f"OpenRouter error {response.status_code}: "
-                f"{response.text}"
-
-            )
+            raise
 
 
 
-        response.raise_for_status()
 
-
-
-        return response.json()
 
 
 
     raise RuntimeError(
 
-        "OpenRouter request failed after retries"
+        "OpenRouter failed after retries"
 
     )
 
 
+# =====================================================
+# RESPONSE PARSER
+# =====================================================
+
+
+def extract_answer(
+
+    response: dict
+
+) -> str:
+
+
+    """
+    Extract assistant answer safely
+    from OpenRouter response.
+    """
+
+
+    try:
+
+
+        choices = response.get(
+
+            "choices",
+
+            []
+
+        )
+
+
+        if not choices:
+
+            return ""
+
+
+
+        message = choices[0].get(
+
+            "message",
+
+            {}
+
+        )
+
+
+
+        return (
+
+            message.get(
+
+                "content",
+
+                ""
+
+            )
+
+            .strip()
+
+        )
+
+
+
+    except Exception as e:
+
+
+        logger.error(
+
+            f"Response parsing failed: {e}"
+
+        )
+
+
+        return ""
 
 
 
 
 
-# =========================
-# Generate Answer
-# =========================
+
+
+
+
+# =====================================================
+# SOURCE FORMATTER
+# =====================================================
+
+
+def build_sources(
+
+    chunks: list[RetrievedChunk]
+
+) -> list[dict]:
+
+
+    """
+    Convert retrieved chunks
+    into citation metadata.
+    """
+
+
+
+    sources = []
+
+
+
+    seen = set()
+
+
+
+    for item in chunks:
+
+
+
+        chunk = item.chunk
+
+
+
+        url = chunk.source_url
+
+
+
+
+        if url in seen:
+
+            continue
+
+
+
+        seen.add(url)
+
+
+
+        sources.append(
+
+
+
+            {
+
+
+                "title":
+
+                chunk.title,
+
+
+
+                "url":
+
+                url,
+
+
+
+                "score":
+
+                round(
+
+                    float(
+
+                        item.score
+
+                    ),
+
+                    4
+
+                ),
+
+
+
+                "source":
+
+                chunk.metadata.get(
+
+                    "source",
+
+                    ""
+
+                ),
+
+
+
+                "type":
+
+                chunk.metadata.get(
+
+                    "doc_type",
+
+                    "web"
+
+                )
+
+
+
+            }
+
+
+
+        )
+
+
+
+    return sources
+
+
+
+
+
+
+
+
+
+
+# =====================================================
+# GENERATE ANSWER ASYNC
+# =====================================================
 
 
 async def generate_answer_async(
 
-    question,
+    question: str,
 
-    chunks
+    chunks: list[RetrievedChunk]
 
-):
+) -> RAGAnswer:
+
+
+
+    """
+    Main generation pipeline.
+
+    Steps:
+
+    1- Build context
+    2- Call LLM
+    3- Parse answer
+    4- Attach citations
+
+    """
+
 
 
     if not chunks:
 
 
+
         return RAGAnswer(
 
-            answer="لا توجد معلومات كافية.",
+
+            answer=
+
+            "لم يتم العثور على معلومات كافية.",
+
+
 
             sources=[],
 
-            retriever_used="none",
 
-            chunks_retrieved=0
+
+            retriever_used=
+
+            "none",
+
+
+
+            chunks_retrieved=
+
+            0
 
         )
+
+
+
+
 
 
 
@@ -486,22 +1073,63 @@ async def generate_answer_async(
     )
 
 
+
+
+    if not context:
+
+
+
+        return RAGAnswer(
+
+
+            answer=
+
+            "لا يوجد سياق صالح للإجابة.",
+
+
+
+            sources=[],
+
+
+
+            retriever_used=
+
+            "none",
+
+
+
+            chunks_retrieved=
+
+            0
+
+        )
+
+
+
+
+
+
+
     answer = ""
+
 
 
 
     try:
 
 
+
         async with httpx.AsyncClient(
 
-            timeout=90
+            timeout=
+
+            REQUEST_TIMEOUT
 
         ) as client:
 
 
 
-            data = await call_openrouter(
+            response = await request_openrouter(
 
                 client,
 
@@ -513,37 +1141,54 @@ async def generate_answer_async(
 
 
 
-            answer = (
+            answer = extract_answer(
 
-                data
-
-                ["choices"]
-
-                [0]
-
-                ["message"]
-
-                ["content"]
+                response
 
             )
+
+
+
 
 
 
     except Exception as e:
 
 
+
         logger.exception(
 
-            f"LLM generation failed: {e}"
+            f"Generation failed: {e}"
 
         )
+
 
 
         answer = (
 
-            "حدث خطأ أثناء الاتصال بالنموذج."
+            "حدث خطأ أثناء توليد الإجابة."
 
         )
+
+
+
+
+
+
+
+
+    if not answer:
+
+
+
+        answer = (
+
+            "لم يتمكن النموذج من إنشاء إجابة."
+
+        )
+
+
+
 
 
 
@@ -551,51 +1196,40 @@ async def generate_answer_async(
     return RAGAnswer(
 
 
+
         answer=answer,
 
 
-        sources=[
 
-            {
+        sources=
 
+        build_sources(
 
-                "title":
+            chunks
 
-                c.chunk.title,
-
-
-                "url":
-
-                c.chunk.source_url,
-
-
-                "score":
-
-                round(
-
-                    c.score,
-
-                    4
-
-                )
-
-            }
-
-            for c in chunks
-
-        ],
+        ),
 
 
 
         retriever_used=
 
-        chunks[0].retriever,
+        getattr(
+
+            chunks[0],
+
+            "retriever",
+
+            "unknown"
+
+        ),
 
 
 
         chunks_retrieved=
 
         len(chunks)
+
+
 
     )
 
@@ -606,18 +1240,45 @@ async def generate_answer_async(
 
 
 
-# =========================
-# Streaming
-# =========================
+
+# =====================================================
+# STREAMING GENERATION
+# =====================================================
 
 
 async def stream_answer_async(
 
-    question,
+    question: str,
 
-    chunks
+    chunks: list[RetrievedChunk]
 
 ):
+
+
+    """
+    Production streaming generator.
+
+    Returns tokens progressively
+    for Streamlit UI.
+    """
+
+
+
+    if not chunks:
+
+
+        yield (
+
+            "لا توجد معلومات كافية."
+
+        )
+
+
+        return
+
+
+
+
 
 
     context = build_context(
@@ -628,103 +1289,161 @@ async def stream_answer_async(
 
 
 
-    async with httpx.AsyncClient(
 
-        timeout=120
-
-    ) as client:
+    router = OpenRouterClient()
 
 
 
-        async with client.stream(
 
-            "POST",
-
-            OPENROUTER_URL,
-
-            headers=headers(),
-
-            json=payload(
-
-                question,
-
-                context,
-
-                True
-
-            )
-
-        ) as response:
+    try:
 
 
 
-            if response.status_code >= 400:
+        async with httpx.AsyncClient(
+
+            timeout=
+
+            STREAM_TIMEOUT
+
+        ) as client:
 
 
-                logger.error(
 
-                    f"Streaming error: {response.text}"
+            async with client.stream(
 
-                )
+                "POST",
+
+                OPENROUTER_URL,
+
+                headers=
+
+                router.get_headers(),
 
 
-                yield (
+                json=
 
-                    "حدث خطأ أثناء توليد الإجابة."
+                build_payload(
+
+                    question,
+
+                    context,
+
+                    True
 
                 )
 
 
-                return
+            ) as response:
+
+
+
+                if response.status_code >= 400:
+
+
+
+                    logger.error(
+
+                        f"Streaming failed {response.status_code}"
+
+                    )
+
+
+                    yield (
+
+                        "حدث خطأ أثناء الاتصال بالنموذج."
+
+                    )
+
+
+                    return
 
 
 
 
-            async for line in response.aiter_lines():
-
-
-                if not line:
-
-                    continue
 
 
 
-                if line.startswith(
-
-                    "data:"
-
-                ):
+                async for line in response.aiter_lines():
 
 
-                    data = line[5:].strip()
+
+                    if not line:
+
+
+                        continue
+
+
+
+
+
+                    if not line.startswith(
+
+                        "data:"
+
+                    ):
+
+
+                        continue
+
+
+
+
+
+                    data = line.replace(
+
+                        "data:",
+
+                        ""
+
+                    ).strip()
+
+
+
 
 
 
                     if data == "[DONE]":
 
+
                         break
+
+
+
+
 
 
 
                     try:
 
 
-                        obj = json.loads(
+
+                        event = json.loads(
 
                             data
 
                         )
 
 
+
                         token = (
 
-                            obj
+                            event
 
-                            ["choices"]
+                            .get(
 
-                            [0]
+                                "choices",
 
-                            ["delta"]
+                                [{}]
+
+                            )[0]
+
+                            .get(
+
+                                "delta",
+
+                                {}
+
+                            )
 
                             .get(
 
@@ -737,12 +1456,425 @@ async def stream_answer_async(
                         )
 
 
+
                         if token:
+
+
 
                             yield token
 
 
 
-                    except Exception:
+
+
+
+                    except json.JSONDecodeError:
+
+
 
                         continue
+
+
+
+
+
+
+
+    except Exception as e:
+
+
+
+        logger.exception(
+
+            f"Streaming error: {e}"
+
+        )
+
+
+        yield (
+
+            "حدث خطأ أثناء البث."
+
+        )
+
+# =====================================================
+# MODEL HEALTH CHECK
+# =====================================================
+
+
+async def check_llm_health() -> dict:
+
+
+    """
+    Verify OpenRouter availability.
+
+    Used by:
+    - Streamlit startup
+    - Monitoring
+    - Debugging
+    """
+
+
+
+    router = OpenRouterClient()
+
+
+
+    try:
+
+
+
+        async with httpx.AsyncClient(
+
+            timeout=20
+
+        ) as client:
+
+
+
+            response = await client.get(
+
+                "https://openrouter.ai/api/v1/models",
+
+                headers=
+
+                router.get_headers()
+
+            )
+
+
+
+            if response.status_code == 200:
+
+
+
+                return {
+
+
+
+                    "status":
+
+                    "healthy",
+
+
+
+                    "provider":
+
+                    "openrouter",
+
+
+
+                    "model":
+
+                    router.get_model()
+
+
+
+                }
+
+
+
+
+
+
+            return {
+
+
+
+                "status":
+
+                "error",
+
+
+
+                "code":
+
+                response.status_code
+
+
+
+            }
+
+
+
+
+
+
+    except Exception as e:
+
+
+
+        logger.error(
+
+            f"LLM health check failed: {e}"
+
+        )
+
+
+
+        return {
+
+
+
+            "status":
+
+            "unhealthy",
+
+
+
+            "error":
+
+            str(e)
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+# =====================================================
+# SAFE GENERATION WRAPPER
+# =====================================================
+
+
+async def safe_generate_answer(
+
+    question: str,
+
+    chunks: list[RetrievedChunk]
+
+) -> RAGAnswer:
+
+
+    """
+    Extra safety layer.
+
+    Prevents RAG pipeline crash
+    when LLM fails.
+    """
+
+
+
+    try:
+
+
+
+        return await generate_answer_async(
+
+            question,
+
+            chunks
+
+        )
+
+
+
+
+
+    except Exception as e:
+
+
+
+        logger.exception(
+
+            f"Safe generation failure: {e}"
+
+        )
+
+
+
+        return RAGAnswer(
+
+
+            answer=
+
+            "تعذر إنشاء الإجابة حالياً.",
+
+
+
+            sources=
+
+            build_sources(
+
+                chunks
+
+            ),
+
+
+
+            retriever_used=
+
+            "fallback",
+
+
+
+            chunks_retrieved=
+
+            len(chunks)
+
+
+
+        )
+
+
+
+
+
+
+
+
+
+# =====================================================
+# STREAM SAFE WRAPPER
+# =====================================================
+
+
+async def safe_stream_answer(
+
+    question: str,
+
+    chunks: list[RetrievedChunk]
+
+) -> AsyncGenerator[str, None]:
+
+
+    """
+    Safe streaming wrapper.
+
+    Compatible with:
+    Streamlit st.write_stream
+    """
+
+
+
+    try:
+
+
+
+        async for token in stream_answer_async(
+
+            question,
+
+            chunks
+
+        ):
+
+
+
+            yield token
+
+
+
+
+
+    except Exception as e:
+
+
+
+        logger.exception(
+
+            f"Streaming wrapper failed: {e}"
+
+        )
+
+
+
+        yield (
+
+            "حدث خطأ أثناء إنشاء الإجابة."
+
+        )
+
+
+
+
+
+
+
+
+
+# =====================================================
+# EXPORTS
+# =====================================================
+
+
+__all__ = [
+
+
+
+    "RAGAnswer",
+
+
+
+    "generate_answer_async",
+
+
+
+    "stream_answer_async",
+
+
+
+    "safe_generate_answer",
+
+
+
+    "safe_stream_answer",
+
+
+
+    "check_llm_health"
+
+]
+
+
+
+
+
+
+
+
+# =====================================================
+# LOCAL TEST ENTRY POINT
+# =====================================================
+
+
+async def _test():
+
+
+
+    logger.info(
+
+        "RAG Chain test started"
+
+    )
+
+
+
+    result = await check_llm_health()
+
+
+
+    print(result)
+
+
+
+
+
+
+
+if __name__ == "__main__":
+
+
+
+    asyncio.run(
+
+        _test()
+
+    )
+
