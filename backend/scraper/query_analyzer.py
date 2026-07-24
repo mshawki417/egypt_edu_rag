@@ -2,14 +2,16 @@
 Advanced Arabic Query Analyzer
 Production Education RAG Engine
 
-Designed for:
+Features:
 - Curriculum QA
 - General Education QA
 - Exam Assistant
-- Summarization
 - Explanation
+- Summarization
+- Smart Query Expansion
+- Automatic Topic Extraction
+- Confidence Scoring
 """
-
 
 from __future__ import annotations
 
@@ -18,433 +20,579 @@ import re
 
 from dataclasses import dataclass, field
 
+from typing import Optional
+
 from loguru import logger
 
 
 
-
-
 # =====================================================
-# Education Levels
+# Education Stages
 # =====================================================
 
 
-STAGE_PATTERNS={
+STAGE_PATTERNS = {
 
+    "primary": [
 
-    "primary":
-    [
         "ابتدائي",
-        "ابتدائى",
-        "الابتدائي"
+        "ابتدائيه",
+        "الابتدائي",
+        "المرحله الابتدائيه",
+        "primary"
+
     ],
 
 
-    "preparatory":
-    [
+    "preparatory": [
+
         "اعدادي",
-        "إعدادي",
-        "الاعدادي"
+        "اعداديه",
+        "الاعدادي",
+        "المرحله الاعداديه",
+        "middle school"
+
     ],
 
 
-    "secondary":
-    [
+    "secondary": [
+
         "ثانوي",
-        "الثانوية العامة"
+        "ثانويه",
+        "الثانويه العامه",
+        "المرحله الثانويه",
+        "secondary"
+
     ]
 
 }
 
 
 
-
-
 # =====================================================
-# Grade Detection
+# Grades
 # =====================================================
 
 
-GRADE_PATTERNS={
+GRADE_PATTERNS = {
 
 
-"الأول الابتدائي":
-[
-"اول ابتدائي",
-"الاول ابتدائي",
-"1 ابتدائي"
-],
+    "الأول الابتدائي": [
+
+        "اول ابتدائي",
+        "الاول ابتدائي",
+        "1 ابتدائي",
+        "١ ابتدائي"
+
+    ],
 
 
-"الثاني الابتدائي":
-[
-"ثاني ابتدائي",
-"الثاني ابتدائي",
-"2 ابتدائي"
-],
+    "الثاني الابتدائي": [
+
+        "ثاني ابتدائي",
+        "الثاني ابتدائي",
+        "2 ابتدائي",
+        "٢ ابتدائي"
+
+    ],
 
 
-"الثالث الابتدائي":
-[
-"ثالث ابتدائي",
-"الثالث ابتدائي",
-"3 ابتدائي"
-],
+    "الثالث الابتدائي": [
+
+        "ثالث ابتدائي",
+        "الثالث ابتدائي",
+        "3 ابتدائي",
+        "٣ ابتدائي"
+
+    ],
 
 
-"الرابع الابتدائي":
-[
-"رابع ابتدائي",
-"الرابع ابتدائي",
-"4 ابتدائي"
-],
+    "الرابع الابتدائي": [
+
+        "رابع ابتدائي",
+        "الرابع ابتدائي",
+        "4 ابتدائي",
+        "٤ ابتدائي"
+
+    ],
 
 
-"الخامس الابتدائي":
-[
-"خامس ابتدائي",
-"الخامس ابتدائي",
-"5 ابتدائي"
-],
+    "الخامس الابتدائي": [
+
+        "خامس ابتدائي",
+        "الخامس ابتدائي",
+        "5 ابتدائي",
+        "٥ ابتدائي"
+
+    ],
 
 
-"السادس الابتدائي":
-[
-"سادس ابتدائي",
-"السادس ابتدائي",
-"6 ابتدائي"
-],
+    "السادس الابتدائي": [
 
+        "سادس ابتدائي",
+        "السادس ابتدائي",
+        "6 ابتدائي",
+        "٦ ابتدائي"
 
-
-"الأول الإعدادي":
-[
-"اول اعدادي",
-"الاول اعدادي",
-"1 اعدادي"
-],
-
-
-"الثاني الإعدادي":
-[
-"ثاني اعدادي",
-"الثاني اعدادي",
-"2 اعدادي"
-],
-
-
-"الثالث الإعدادي":
-[
-"ثالث اعدادي",
-"الثالث اعدادي",
-"3 اعدادي"
-],
+    ],
 
 
 
-"الأول الثانوي":
-[
-"اول ثانوي",
-"الاول ثانوي"
-],
+    "الأول الإعدادي": [
+
+        "اول اعدادي",
+        "الاول اعدادي",
+        "1 اعدادي",
+        "١ اعدادي"
+
+    ],
 
 
-"الثاني الثانوي":
-[
-"ثاني ثانوي",
-"الثاني ثانوي"
-],
+    "الثاني الإعدادي": [
+
+        "ثاني اعدادي",
+        "الثاني اعدادي",
+        "2 اعدادي",
+        "٢ اعدادي"
+
+    ],
 
 
-"الثالث الثانوي":
-[
-"ثالث ثانوي",
-"الثانوية العامة"
-]
+    "الثالث الإعدادي": [
+
+        "ثالث اعدادي",
+        "الثالث اعدادي",
+        "3 اعدادي",
+        "٣ اعدادي"
+
+    ],
+
+
+
+    "الأول الثانوي": [
+
+        "اول ثانوي",
+        "الاول ثانوي",
+        "1 ثانوي"
+
+    ],
+
+
+    "الثاني الثانوي": [
+
+        "ثاني ثانوي",
+        "الثاني ثانوي",
+        "2 ثانوي"
+
+    ],
+
+
+    "الثالث الثانوي": [
+
+        "ثالث ثانوي",
+        "الثالث ثانوي",
+        "الثانويه العامه",
+        "الثانويه العامة"
+
+    ]
 
 }
 
 
 
-
-
 # =====================================================
-# Subjects
+# Subjects Intelligence Dictionary
 # =====================================================
 
 
-SUBJECTS={
+SUBJECTS = {
 
 
-"رياضيات":
-[
-"رياضيات",
-"حساب",
-"جبر",
-"هندسة",
-"تفاضل",
-"تكامل",
-"قسمة",
-"ضرب"
-],
+    "رياضيات": [
 
+        "رياضيات",
+        "حساب",
+        "جبر",
+        "هندسه",
+        "هندسة",
+        "تفاضل",
+        "تكامل",
+        "معادلات",
+        "قسمة",
+        "ضرب",
+        "كسور",
+        "احتمالات"
 
-
-"فيزياء":
-[
-"فيزياء",
-"سرعة",
-"قوة",
-"طاقة",
-"حركة"
-],
+    ],
 
 
 
-"كيمياء":
-[
-"كيمياء",
-"تفاعل",
-"ذرة"
-],
+    "فيزياء": [
+
+        "فيزياء",
+        "حركه",
+        "حركة",
+        "سرعه",
+        "سرعة",
+        "قوه",
+        "قوة",
+        "طاقه",
+        "طاقة",
+        "تسارع",
+        "نيوتن",
+        "قانون"
+
+    ],
 
 
 
-"علوم":
-[
-"علوم",
-"biology",
-"science"
-],
+    "كيمياء": [
+
+        "كيمياء",
+        "ذره",
+        "ذرة",
+        "تفاعل",
+        "عنصر",
+        "مركب",
+        "احماض",
+        "عضويه",
+        "عضوية"
+
+    ],
 
 
 
-"احياء":
-[
-"احياء",
-"خلية",
-"جسم الانسان"
-],
+    "علوم": [
+
+        "علوم",
+        "science",
+        "biology",
+        "طبيعه",
+        "طبيعة"
+
+    ],
 
 
 
-"لغة عربية":
-[
-"عربي",
-"نحو",
-"بلاغة",
-"شعر"
-],
+    "احياء": [
+
+        "احياء",
+        "خلية",
+        "جسم الانسان",
+        "تشريح",
+        "وراثه",
+        "وراثة"
+
+    ],
 
 
 
-"لغة انجليزية":
-[
-"انجليزي",
-"english"
-],
+    "لغة عربية": [
+
+        "عربي",
+        "لغة عربية",
+        "نحو",
+        "بلاغه",
+        "بلاغة",
+        "شعر",
+        "ادب"
+
+    ],
 
 
 
-"تاريخ":
-[
-"تاريخ",
-"ثورة",
-"حرب"
-],
+    "لغة انجليزية": [
+
+        "انجليزي",
+        "english",
+        "grammar"
+
+    ],
 
 
 
-"جغرافيا":
-[
-"جغرافيا",
-"مناخ",
-"سكان"
-]
+    "تاريخ": [
+
+        "تاريخ",
+        "حضاره",
+        "حضارة",
+        "ثورة",
+        "حرب",
+        "اسرات",
+        "اسر"
+
+    ],
+
+
+
+    "جغرافيا": [
+
+        "جغرافيا",
+        "مناخ",
+        "سكان",
+        "بيئه",
+        "بيئة"
+
+    ]
 
 }
 
 
 
-
-
 # =====================================================
-# Intent
+# Topic Expansion Map
 # =====================================================
 
 
-INTENT_RULES={
+TOPIC_MAP = {
 
 
-"summary":
-[
-"لخص",
-"ملخص",
-"تلخيص",
-"الخلاصة"
-],
+    "السرعة": [
+
+        "السرعة",
+        "velocity",
+        "speed",
+        "حركة",
+        "مسافة",
+        "زمن"
+
+    ],
 
 
+    "القسمة المطولة": [
 
-"explanation":
-[
-"اشرح",
-"شرح",
-"وضح",
-"فسر",
-"كيف"
-],
+        "قسمة",
+        "قسمة طويلة",
+        "القسمة المطولة",
+        "رياضيات"
 
+    ],
 
 
-"solution":
-[
-"حل",
-"مسألة",
-"تمرين",
-"مثال"
-],
+    "قوانين نيوتن": [
+
+        "نيوتن",
+        "القانون الاول",
+        "القانون الثاني",
+        "القوة",
+        "التسارع"
+
+    ],
 
 
+    "الجهاز الهضمي": [
 
-"definition":
-[
-"من هو",
-"من صاحب",
-"ما هو",
-"عرف",
-"تعريف"
-],
+        "جهاز هضمي",
+        "معدة",
+        "امعاء",
+        "هضم",
+        "علوم"
 
-
-
-"comparison":
-[
-"قارن",
-"الفرق",
-"مقارنة"
-],
+    ],
 
 
+    "الكيمياء العضوية": [
 
-"exam":
-[
-"امتحان",
-"اختبار",
-"نتيجة",
-"درجات"
-],
+        "عضوية",
+        "هيدروكربونات",
+        "كربون",
+        "كيمياء"
 
-
-
-"news":
-[
-"قرار",
-"خبر",
-"اليوم",
-"اخر",
-"جديد"
-],
-
-
-
-"curriculum":
-[
-"منهج",
-"كتاب",
-"درس",
-"باب",
-"وحدة"
-]
+    ]
 
 }
 
 
 
+# =====================================================
+# Intent Rules
+# =====================================================
 
+
+INTENT_RULES = {
+
+
+    "summary": [
+
+        "لخص",
+        "ملخص",
+        "تلخيص",
+        "الخلاصة"
+
+    ],
+
+
+    "explanation": [
+
+        "اشرح",
+        "شرح",
+        "وضح",
+        "فسر",
+        "كيف يعمل",
+        "ما السبب"
+
+    ],
+
+
+    "solution": [
+
+        "حل",
+        "مسألة",
+        "تمرين",
+        "احسب",
+        "اوجد"
+
+    ],
+
+
+    "definition": [
+
+        "ما هو",
+        "عرف",
+        "تعريف",
+        "من هو"
+
+    ],
+
+
+    "comparison": [
+
+        "قارن",
+        "الفرق",
+        "مقارنة"
+
+    ],
+
+
+    "exam": [
+
+        "امتحان",
+        "اختبار",
+        "درجات",
+        "نماذج"
+
+    ],
+
+
+    "news": [
+
+        "قرار",
+        "خبر",
+        "اليوم",
+        "اخر",
+        "جديد"
+
+    ],
+
+
+    "curriculum": [
+
+        "منهج",
+        "كتاب",
+        "درس",
+        "باب",
+        "وحدة"
+
+    ]
+
+}
 
 # =====================================================
-# Metadata
+# Query Metadata
 # =====================================================
 
 
 @dataclass
 class QueryMetadata:
 
+    raw_question: str
 
-    raw_question:str
+    normalized: str = ""
 
+    intent: str = "general"
 
-    normalized:str=""
+    subject: str | None = None
 
+    stage: str | None = None
 
-    intent:str="general"
+    grade: str | None = None
 
+    term: str | None = None
 
-    subject:str|None=None
+    year: str | None = None
 
+    topic: str | None = None
 
-    stage:str|None=None
-
-
-    grade:str|None=None
-
-
-    term:str|None=None
-
-
-    year:str|None=None
-
-
-    topic:str|None=None
-
-
-    search_query:str=""
-
-
-    keywords:list[str]=field(
+    keywords: list[str] = field(
         default_factory=list
     )
 
+    search_query: str = ""
 
-    source_category:str="general"
+    source_category: str = "general"
 
+    needs_live_search: bool = False
 
-    needs_live_search:bool=False
+    confidence: float = 0.0
 
-
+    detected_entities: dict = field(
+        default_factory=dict
+    )
 
 
 
 # =====================================================
-# Normalize
+# Arabic Normalization
 # =====================================================
 
 
-def normalize_text(text):
+def normalize_text(text: str) -> str:
+
+    if not text:
+        return ""
 
 
-    text=text.lower()
+    text = text.lower()
 
 
-    replacements={
+    replacements = {
 
-        "أ":"ا",
-        "إ":"ا",
-        "آ":"ا",
-        "ى":"ي",
-        "ة":"ه"
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ٱ": "ا",
+        "ى": "ي",
+        "ة": "ه",
+        "ؤ": "و",
+        "ئ": "ي"
 
     }
 
 
-    for a,b in replacements.items():
+    for old, new in replacements.items():
 
-        text=text.replace(a,b)
+        text = text.replace(
+            old,
+            new
+        )
 
 
+    # remove tashkeel
 
-    text=re.sub(
+    text = re.sub(
+
+        r"[\u064B-\u065F]",
+
+        "",
+
+        text
+
+    )
+
+
+    # remove symbols
+
+    text = re.sub(
 
         r"[^\w\s\u0600-\u06ff]",
 
@@ -455,7 +603,9 @@ def normalize_text(text):
     )
 
 
-    text=re.sub(
+    # normalize spaces
+
+    text = re.sub(
 
         r"\s+",
 
@@ -470,82 +620,87 @@ def normalize_text(text):
 
 
 
-
-
 # =====================================================
-# Detect
+# Dictionary Detection
 # =====================================================
 
 
-def detect_from_dictionary(text,dictionary):
+def detect_from_dictionary(
+    text: str,
+    dictionary: dict
+):
+
+    matches = []
 
 
-    for key,values in dictionary.items():
-
+    for key, values in dictionary.items():
 
         for value in values:
 
-
             if value in text:
 
-                return key
+                matches.append(key)
 
-
-    return None
-
-
+                break
 
 
 
-
-def detect_intent(text):
-
-
-    scores={}
+    return matches[0] if matches else None
 
 
 
-    for intent,words in INTENT_RULES.items():
 
-        scores[intent]=sum(
-
-            1
-
-            for w in words
-
-            if w in text
-
-        )
+# =====================================================
+# Intent Detection With Score
+# =====================================================
 
 
+def detect_intent(text: str):
 
-    best=max(
+    scores = {}
 
+
+    for intent, words in INTENT_RULES.items():
+
+        score = 0
+
+
+        for word in words:
+
+            if word in text:
+
+                score += 1
+
+
+        scores[intent] = score
+
+
+
+    best_intent = max(
         scores,
-
         key=scores.get
-
     )
 
 
 
-    if scores[best]==0:
+    if scores[best_intent] == 0:
 
         return "general"
 
 
 
-    return best
+    return best_intent
 
 
 
+# =====================================================
+# Detect Year
+# =====================================================
 
 
+def detect_year(text: str):
 
-def detect_year(text):
-
-
-    result=re.search(
+    match = re.search(
 
         r"(20\d{2})",
 
@@ -554,175 +709,256 @@ def detect_year(text):
     )
 
 
-    return result.group(1) if result else None
+    if match:
 
-
-
-
-
-def detect_term(text):
-
-
-    if "الترم الاول" in text:
-
-        return "الترم الأول"
-
-
-    if "الترم الثاني" in text:
-
-        return "الترم الثاني"
+        return match.group(1)
 
 
     return None
 
 
 
-
-
 # =====================================================
-# Main
+# Detect Term
 # =====================================================
 
 
-def analyze_query(question:str):
+def detect_term(text: str):
 
 
-    text=normalize_text(question)
-
-
-
-    meta=QueryMetadata(
-
-        raw_question=question,
-
-        normalized=text
-
-    )
-
-
-
-    meta.intent=detect_intent(text)
-
-
-
-    meta.subject=detect_from_dictionary(
-
-        text,
-
-        SUBJECTS
-
-    )
-
-
-
-
-    meta.grade=detect_from_dictionary(
-
-        text,
-
-        GRADE_PATTERNS
-
-    )
-
-
-
-
-    meta.term=detect_term(text)
-
-
-
-    meta.year=detect_year(text)
-
-
-
-    for stage,words in STAGE_PATTERNS.items():
-
-        if any(
-
-            w in text
-
-            for w in words
-
-        ):
-
-            meta.stage=stage
-
-            break
-
-
-
-
-
-    # -------------------------------
-    # Source Category
-    # -------------------------------
-
-
-    if meta.grade or meta.term:
-
-        meta.source_category="curriculum"
-
-
-    elif meta.intent=="news":
-
-        meta.source_category="news"
-
-
-    else:
-
-        meta.source_category="general"
-
-
-
-
-
-
-    # -------------------------------
-    # Live Search
-    # -------------------------------
-
-
-    meta.needs_live_search=any(
-
+    if any(
         x in text
-
         for x in [
+            "الترم الاول",
+            "الفصل الاول",
+            "الفصل الدراسي الاول"
+        ]
+    ):
 
-            "اليوم",
+        return "الترم الأول"
 
-            "الان",
 
-            "اخر",
 
-            "قرار",
+    if any(
+        x in text
+        for x in [
+            "الترم الثاني",
+            "الفصل الثاني",
+            "الفصل الدراسي الثاني"
+        ]
+    ):
 
-            "2026"
+        return "الترم الثاني"
+
+
+
+    return None
+
+
+
+# =====================================================
+# Dynamic Keyword Extraction
+# =====================================================
+
+
+def extract_keywords(text: str):
+
+    words = text.split()
+
+
+    stop_words = {
+
+        "ما",
+        "هو",
+        "هي",
+        "في",
+        "من",
+        "عن",
+        "الى",
+        "على",
+        "شرح",
+        "اشرح",
+        "اريد",
+        "عاوز",
+        "كيف",
+        "هل"
+
+    }
+
+
+    filtered = [
+
+        w
+
+        for w in words
+
+        if w not in stop_words
+
+        and len(w) > 2
+
+    ]
+
+
+    frequency = Counter(filtered)
+
+
+    return [
+
+        word
+
+        for word, count
+
+        in frequency.most_common(10)
+
+    ]
+
+# =====================================================
+# Topic Extraction
+# =====================================================
+
+
+def extract_topic(
+    text: str,
+    subject: str | None
+):
+
+    keywords = extract_keywords(text)
+
+
+    if subject:
+
+        keywords = [
+
+            k
+
+            for k in keywords
+
+            if k != subject
 
         ]
 
-    )
+    if keywords:
+
+        return " ".join(
+            keywords[:3]
+        )
+
+
+    return None
+
+# =====================================================
+# Source Category Detection
+# =====================================================
+
+
+def detect_source_category(meta: QueryMetadata):
+
+
+    # Curriculum questions
+    if (
+        meta.grade
+        or meta.term
+        or meta.subject
+        or meta.intent == "curriculum"
+    ):
+
+        return "curriculum"
+
+
+
+    # Exam related
+
+    if meta.intent == "exam":
+
+        return "exam"
+
+
+
+    # Current information
+
+    if meta.needs_live_search:
+
+        return "news"
+
+
+
+    return "general"
 
 
 
 
 
+# =====================================================
+# Live Search Decision
+# =====================================================
 
-    # -------------------------------
-    # Smart Query Builder
-    # -------------------------------
+
+def should_use_live_search(text: str):
 
 
-    query=[
+    triggers = [
 
-        question
+        "اليوم",
+
+        "الان",
+
+        "اخر",
+
+        "جديد",
+
+        "قرار",
+
+        "2025",
+
+        "2026",
+
+        "وزارة",
+
+        "نتيجة"
 
     ]
 
 
 
+    return any(
+
+        word in text
+
+        for word in triggers
+
+    )
+
+
+
+
+
+# =====================================================
+# Build Smart Search Query
+# =====================================================
+
+
+def build_search_query(meta: QueryMetadata):
+
+
+    query_parts = []
+
+
+
+    # Original question
+
+    query_parts.append(
+
+        meta.raw_question
+
+    )
+
+
+
+    # Subject
+
     if meta.subject:
 
-        query.append(
+        query_parts.append(
 
             meta.subject
 
@@ -730,9 +966,11 @@ def analyze_query(question:str):
 
 
 
+    # Grade
+
     if meta.grade:
 
-        query.append(
+        query_parts.append(
 
             meta.grade
 
@@ -740,9 +978,23 @@ def analyze_query(question:str):
 
 
 
+    # Stage
+
+    if meta.stage:
+
+        query_parts.append(
+
+            "المرحلة " + meta.stage
+
+        )
+
+
+
+    # Term
+
     if meta.term:
 
-        query.append(
+        query_parts.append(
 
             meta.term
 
@@ -750,47 +1002,311 @@ def analyze_query(question:str):
 
 
 
+    # Topic extracted automatically
 
-    if meta.source_category=="curriculum":
+    if meta.topic:
 
+        query_parts.append(
 
-        query.append(
-
-            "منهج وزارة التربية والتعليم مصر"
+            meta.topic
 
         )
 
 
 
-    meta.search_query=" ".join(
+    # Curriculum priority
 
-        query
+    if meta.source_category == "curriculum":
+
+
+        query_parts.extend(
+
+            [
+
+                "وزارة التربية والتعليم مصر",
+
+                "كتاب الوزارة",
+
+                "المنهج المصري"
+
+            ]
+
+        )
+
+
+
+    # Exam priority
+
+    if meta.source_category == "exam":
+
+        query_parts.extend(
+
+            [
+
+                "امتحانات وزارة التربية والتعليم",
+
+                "نماذج امتحانات"
+
+            ]
+
+        )
+
+
+
+    return " ".join(
+
+        query_parts
 
     )
 
 
 
 
-    meta.keywords=[
 
-        x
+# =====================================================
+# Confidence Calculation
+# =====================================================
 
-        for x in [
 
+def calculate_confidence(meta: QueryMetadata):
+
+
+    score = 0
+
+
+
+    if meta.subject:
+
+        score += 0.25
+
+
+
+    if meta.grade:
+
+        score += 0.25
+
+
+
+    if meta.topic:
+
+        score += 0.20
+
+
+
+    if meta.intent != "general":
+
+        score += 0.15
+
+
+
+    if meta.term:
+
+        score += 0.15
+
+
+
+    return round(
+
+        min(score, 1.0),
+
+        2
+
+    )
+
+
+
+
+
+# =====================================================
+# Main Analyzer
+# =====================================================
+
+
+def analyze_query(question: str):
+
+
+    normalized = normalize_text(
+
+        question
+
+    )
+
+
+
+    meta = QueryMetadata(
+
+        raw_question=question,
+
+        normalized=normalized
+
+    )
+
+
+
+    # Intent
+
+    meta.intent = detect_intent(
+
+        normalized
+
+    )
+
+
+
+    # Subject
+
+    meta.subject = detect_from_dictionary(
+
+        normalized,
+
+        SUBJECTS
+
+    )
+
+
+
+    # Grade
+
+    meta.grade = detect_from_dictionary(
+
+        normalized,
+
+        GRADE_PATTERNS
+
+    )
+
+
+
+    # Stage
+
+    for stage, patterns in STAGE_PATTERNS.items():
+
+
+        if any(
+
+            p in normalized
+
+            for p in patterns
+
+        ):
+
+            meta.stage = stage
+
+            break
+
+
+
+    # Term
+
+    meta.term = detect_term(
+
+        normalized
+
+    )
+
+
+
+    # Year
+
+    meta.year = detect_year(
+
+        normalized
+
+    )
+
+
+
+    # Keywords
+
+    meta.keywords = extract_keywords(
+
+        normalized
+
+    )
+
+
+
+    # Topic
+
+    meta.topic = extract_topic(
+
+        normalized,
+
+        meta.subject
+
+    )
+
+
+
+    # Live search
+
+    meta.needs_live_search = should_use_live_search(
+
+        normalized
+
+    )
+
+
+
+    # Source category
+
+    meta.source_category = detect_source_category(
+
+        meta
+
+    )
+
+
+
+    # Confidence
+
+    meta.confidence = calculate_confidence(
+
+        meta
+
+    )
+
+
+
+    # Entities for debugging
+
+    meta.detected_entities = {
+
+
+        "subject":
             meta.subject,
 
+
+        "grade":
             meta.grade,
 
+
+        "stage":
+            meta.stage,
+
+
+        "term":
             meta.term,
 
-            meta.intent
 
-        ]
+        "topic":
+            meta.topic,
 
-        if x
 
-    ]
+        "year":
+            meta.year
 
+    }
+
+
+
+    # Search Query
+
+    meta.search_query = build_search_query(
+
+        meta
+
+    )
 
 
 
@@ -798,20 +1314,24 @@ def analyze_query(question:str):
 
         {
 
-            "query":question,
+            "query": question,
 
-            "intent":meta.intent,
+            "intent": meta.intent,
 
-            "subject":meta.subject,
+            "subject": meta.subject,
 
-            "grade":meta.grade,
+            "grade": meta.grade,
 
-            "source":meta.source_category
+            "topic": meta.topic,
+
+            "source": meta.source_category,
+
+            "confidence": meta.confidence,
+
+            "search_query": meta.search_query
 
         }
 
     )
-
-
 
     return meta
