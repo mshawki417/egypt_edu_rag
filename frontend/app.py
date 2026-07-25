@@ -149,10 +149,10 @@ with st.sidebar:
 
         """
         \u202B
-        نظام RAG .متخصص في التعليم المصري
+        نظام RAG متخصص في التعليم المصري
 
         يسترجع المعلومات من المصادر
-        .ويولد إجابات مدعومة بالمراجع
+        ويولد إجابات مدعومة بالمراجع
         \u202C
 
         """
@@ -405,7 +405,15 @@ if query and not st.session_state.processing:
 
             answer_area.markdown(
 
-                answer
+                 f"""
+                 <div class="rag-answer">
+
+                 {answer}
+
+                 </div>
+                 """,
+
+                 unsafe_allow_html=True
 
             )
 
