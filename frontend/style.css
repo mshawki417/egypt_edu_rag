@@ -29,7 +29,32 @@ html, body {
 }
 
 
+/* ======================
+   Text Alignment
+====================== */
 
+.main,
+.stMarkdown,
+.stText,
+.stCaption,
+.stAlert,
+.stExpander,
+.stCodeBlock,
+.stChatMessage,
+div[data-testid="stMarkdownContainer"],
+div[data-testid="stChatMessage"] p,
+div[data-testid="stChatMessage"] li,
+div[data-testid="stChatMessage"] ul,
+div[data-testid="stChatMessage"] ol,
+p,
+li,
+ul,
+ol {
+
+    direction: rtl;
+    text-align: right;
+
+}
 
 /* ======================
    Header
