@@ -3160,115 +3160,123 @@ def scraper_report()->dict:
 
 async def async_scrape_for_query(
     meta
-)->list[RawDocument]:
+) -> list[RawDocument]:
 
 
     """
-    Main production RAG scraper.
+    Production Educational RAG Scraper
 
     Pipeline:
 
     Query Analyzer
-
           |
-
     Query Expansion
-
           |
-
-    Parallel Search
-
+    Search Engine
           |
-
+    Source Priority Ranking
+          |
     URL Filtering
-
           |
-
     Async Fetch Pool
-
           |
-
     HTML/PDF Extraction
-
           |
-
-    Ranking
-
+    Quality Ranking
           |
-
     Metadata Creation
-
           |
-
     Deduplication
-
           |
-
     RAG Documents
-
 
     """
 
 
-
-    start=time.time()
-
+    start = time.time()
 
 
     logger.info(
-
         f"""
+
 START SCRAPER
 
+
 Query:
+
 {meta.search_query}
 
+
 """
-
     )
 
 
 
-    # -------------------------------------------------
-    # 1) Build search queries
-    # -------------------------------------------------
+    # =================================================
+    # 1) Query Expansion
+    # =================================================
 
 
-    queries = build_search_queries(
-        meta
+    queries = build_search_queries(meta)
+
+
+    # Remove duplicate queries
+
+    queries = list(
+        dict.fromkeys(
+            q.strip()
+            for q in queries
+            if q.strip()
+        )
     )
 
+
+    # Educational expansion
+
+    educational_queries = [
+
+        f"{meta.search_query} شرح درس",
+
+        f"{meta.search_query} منهج وزارة التربية والتعليم",
+
+        f"{meta.search_query} بنك المعرفة المصري",
+
+        f"{meta.search_query} علوم",
+
+    ]
+
+
+    queries.extend(
+        educational_queries
+    )
+
+
+    queries = list(
+        dict.fromkeys(queries)
+    )
 
 
     logger.info(
-
         f"Generated queries: {len(queries)}"
-
     )
 
 
 
-
-    # -------------------------------------------------
+    # =================================================
     # 2) Parallel Search
-    # -------------------------------------------------
+    # =================================================
 
 
-    search_tasks=[
-
+    search_tasks = [
 
         asyncio.to_thread(
-
             build_search_urls,
-
             query
-
         )
 
         for query in queries
 
     ]
-
 
 
 
@@ -3282,8 +3290,7 @@ Query:
 
 
 
-
-    urls=[]
+    urls = []
 
 
 
@@ -3291,34 +3298,32 @@ Query:
 
 
         if isinstance(
-
             result,
-
             list
-
         ):
 
+            urls.extend(result)
 
-            urls.extend(
 
-                result
 
+        elif isinstance(
+            result,
+            Exception
+        ):
+
+            logger.warning(
+                f"Search failed: {result}"
             )
 
 
 
+    # Remove duplicates
 
-
-    urls=list(
-
+    urls = list(
         dict.fromkeys(
-
             urls
-
         )
-
     )
-
 
 
 
@@ -3326,15 +3331,97 @@ Query:
 
 
         logger.warning(
-
             "No URLs discovered"
-
         )
 
 
         return []
 
 
+
+
+    # =================================================
+    # 3) Educational Source Ranking
+    # =================================================
+
+
+    EDUCATION_DOMAINS = [
+
+        "moe.gov.eg",
+
+        "ekb.eg",
+
+        "study.ekb.eg",
+
+        "marefa.org",
+
+        "edu.eg",
+
+        "britannica.com",
+
+        "wikipedia.org"
+
+    ]
+
+
+
+    LOW_PRIORITY_DOMAINS = [
+
+        "youm7.com",
+
+        "elwatannews.com",
+
+        "masrawy.com",
+
+        "almasryalyoum.com"
+
+    ]
+
+
+
+    def url_priority(url):
+
+
+        url = url.lower()
+
+
+
+        # Highest priority
+
+        if any(
+
+            domain in url
+
+            for domain in EDUCATION_DOMAINS
+
+        ):
+
+            return 0
+
+
+
+        # Lowest priority
+
+        if any(
+
+            domain in url
+
+            for domain in LOW_PRIORITY_DOMAINS
+
+        ):
+
+            return 2
+
+
+
+        return 1
+
+
+
+
+    urls.sort(
+        key=url_priority
+    )
 
 
 
@@ -3345,20 +3432,26 @@ Query:
     )
 
 
+    logger.info(
+
+        f"Top sources: {urls[:5]}"
+
+    )
 
 
 
 
-    # -------------------------------------------------
-    # 3) Async HTTP Fetch Pool
-    # -------------------------------------------------
+    # =================================================
+    # 4) Async Fetch Pool
+    # =================================================
 
 
-    documents=[]
+    documents = []
 
 
 
     async with httpx.AsyncClient(
+
 
         headers={
 
@@ -3367,6 +3460,7 @@ Query:
             ScraperConfig.USER_AGENT
 
         },
+
 
         timeout=
 
@@ -3392,8 +3486,7 @@ Query:
 
 
 
-
-        fetch_jobs=[
+        fetch_jobs = [
 
 
             fetch_url(
@@ -3407,15 +3500,13 @@ Query:
             )
 
 
-            for url in urls
+            for url in urls[:ScraperConfig.MAX_RESULTS]
 
         ]
 
 
 
-
-
-        responses=await asyncio.gather(
+        responses = await asyncio.gather(
 
             *fetch_jobs,
 
@@ -3427,10 +3518,9 @@ Query:
 
 
 
-
-        # -------------------------------------------------
-        # 4) Build RAG Documents
-        # -------------------------------------------------
+        # =================================================
+        # 5) Build Documents
+        # =================================================
 
 
         for response in responses:
@@ -3451,6 +3541,12 @@ Query:
 
             ):
 
+                logger.warning(
+
+                    f"Fetch failed: {response}"
+
+                )
+
                 continue
 
 
@@ -3463,7 +3559,7 @@ Query:
 
 
 
-            doc_id=create_document_id(
+            doc_id = create_document_id(
 
                 response.url,
 
@@ -3473,8 +3569,7 @@ Query:
 
 
 
-
-            metadata=build_final_metadata(
+            metadata = build_final_metadata(
 
                 response,
 
@@ -3485,26 +3580,19 @@ Query:
 
 
 
-
             documents.append(
 
                 RawDocument(
 
-
                     content=response.text,
-
 
                     source_url=response.url,
 
-
                     title=response.title,
-
 
                     doc_id=doc_id,
 
-
                     doc_type=response.doc_type,
-
 
                     metadata=metadata
 
@@ -3516,12 +3604,9 @@ Query:
 
 
 
-
-
-
-    # -------------------------------------------------
-    # 5) Remove duplicates
-    # -------------------------------------------------
+    # =================================================
+    # 6) Deduplication
+    # =================================================
 
 
     documents = remove_duplicate_documents(
@@ -3532,6 +3617,10 @@ Query:
 
 
 
+
+    # =================================================
+    # 7) Metrics
+    # =================================================
 
 
     METRICS[
@@ -3544,14 +3633,7 @@ Query:
 
 
 
-
-
-    # -------------------------------------------------
-    # 6) Final Logging
-    # -------------------------------------------------
-
-
-    elapsed=time.time()-start
+    elapsed = time.time() - start
 
 
 
@@ -3561,19 +3643,27 @@ Query:
 
 ================================================
 
+
 SCRAPER COMPLETED
 
 
+
 Documents:
+
 {len(documents)}
 
 
+
 Time:
+
 {elapsed:.2f}s
 
 
+
 Metrics:
+
 {scraper_report()}
+
 
 
 ================================================
@@ -3584,14 +3674,7 @@ Metrics:
 
 
 
-
     return documents
-
-
-
-
-
-
 
 # =====================================================
 # PRODUCTION ENTRY POINT
