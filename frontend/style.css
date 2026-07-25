@@ -563,3 +563,38 @@ header {
     text-align: right;
 
 }
+/* Arabic Answer Alignment */
+
+div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] {
+
+    direction: rtl;
+    text-align: right;
+
+}
+
+
+div[data-testid="stChatMessage"] p {
+
+    direction: rtl;
+    text-align: right;
+
+}
+
+
+div[data-testid="stChatMessage"] li {
+
+    direction: rtl;
+    text-align: right;
+
+}
+
+
+div[data-testid="stChatMessage"] h1,
+div[data-testid="stChatMessage"] h2,
+div[data-testid="stChatMessage"] h3 {
+
+    direction: rtl;
+    text-align: right;
+
+}
+
