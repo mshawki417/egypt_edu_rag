@@ -1,26 +1,30 @@
 /* ==================================================
    Egypt Education RAG
    Professional AI Interface
+   Streamlit RTL Theme
 ================================================== */
 
 
-/* ======================
-   Global
-====================== */
+/* ==================================================
+   GLOBAL
+================================================== */
 
+html,
+body {
 
-html, body {
-
-    direction: rtl;
     font-family:
-    "Inter",
-    "Segoe UI",
-    Tahoma,
-    Arial,
-    sans-serif;
+        "Inter",
+        "Segoe UI",
+        Tahoma,
+        Arial,
+        sans-serif;
+
+    background:#ffffff;
 
 }
 
+
+/* Main Container */
 
 .main {
 
@@ -29,44 +33,85 @@ html, body {
 }
 
 
-/* ======================
-   Text Alignment
-====================== */
+/* ==================================================
+   RTL CONTENT SYSTEM
+================================================== */
 
-.main,
-.stMarkdown,
-.stText,
-.stCaption,
-.stAlert,
-.stExpander,
-.stCodeBlock,
-.stChatMessage,
-div[data-testid="stMarkdownContainer"],
-div[data-testid="stChatMessage"] p,
-div[data-testid="stChatMessage"] li,
-div[data-testid="stChatMessage"] ul,
-div[data-testid="stChatMessage"] ol,
-p,
-li,
-ul,
-ol {
 
-    direction: rtl;
-    text-align: right;
+/* Arabic Content Only */
+
+.rag-answer,
+div[data-testid="stChatMessage"],
+div[data-testid="stMarkdownContainer"] {
+
+
+    direction:rtl;
+
+    text-align:right;
+
 
 }
 
-/* ======================
-   Header
-====================== */
+
+/* Markdown Elements */
+
+.rag-answer p,
+.rag-answer li,
+.rag-answer ul,
+.rag-answer ol,
+.rag-answer h1,
+.rag-answer h2,
+.rag-answer h3 {
+
+
+    direction:rtl;
+
+    text-align:right;
+
+}
+
+
+
+.rag-answer {
+
+    line-height:1.9;
+
+    font-size:16px;
+
+    color:#1f2937;
+
+}
+
+
+
+.rag-answer ul,
+.rag-answer ol {
+
+
+    padding-right:25px;
+
+}
+
+
+
+
+/* ==================================================
+   HEADER
+================================================== */
 
 
 .main-header {
 
 
-    padding:35px 25px;
+    direction:ltr;
+
+    text-align:left;
+
+
+    padding:35px 30px;
 
     margin-bottom:30px;
+
 
     border-radius:22px;
 
@@ -74,15 +119,17 @@ ol {
     background:
 
     linear-gradient(
+
         135deg,
-        #f8fafc 0%,
-        #eef2ff 100%
+
+        #f8fafc,
+
+        #eef2ff
+
     );
 
 
-    border:
-
-    1px solid #e5e7eb;
+    border:1px solid #e5e7eb;
 
 
 }
@@ -129,9 +176,9 @@ ol {
 
 
 
-/* ======================
-   Sidebar
-====================== */
+/* ==================================================
+   SIDEBAR
+================================================== */
 
 
 section[data-testid="stSidebar"] {
@@ -140,9 +187,7 @@ section[data-testid="stSidebar"] {
     background:#fafafa;
 
 
-    border-left:
-
-    1px solid #e5e7eb;
+    border-left:1px solid #e5e7eb;
 
 
 }
@@ -150,6 +195,11 @@ section[data-testid="stSidebar"] {
 
 
 .sidebar-title {
+
+
+    direction:rtl;
+
+    text-align:right;
 
 
     font-size:26px;
@@ -161,18 +211,15 @@ section[data-testid="stSidebar"] {
     color:#111827;
 
 
-    margin-bottom:15px;
-
-
 }
 
 
 
 
 
-/* ======================
-   Chat Container
-====================== */
+/* ==================================================
+   CHAT UI
+================================================== */
 
 
 div[data-testid="stChatMessage"] {
@@ -187,17 +234,13 @@ div[data-testid="stChatMessage"] {
     margin-bottom:18px;
 
 
-    border:
-
-    1px solid #e5e7eb;
+    border:1px solid #e5e7eb;
 
 
-    background:white;
+    background:#ffffff;
 
 
 }
-
-
 
 
 
@@ -215,7 +258,6 @@ div[data-testid="stChatMessage"]:has(
 
 
 }
-
 
 
 
@@ -237,17 +279,35 @@ div[data-testid="stChatMessage"]:has(
 
 
 
-/* Text */
+/* Assistant Markdown */
+
+
+div[data-testid="stChatMessage"]
+
+div[data-testid="stMarkdownContainer"] {
+
+
+    direction:rtl;
+
+    text-align:right;
+
+
+}
+
+
 
 
 div[data-testid="stChatMessage"] p {
 
 
+    direction:rtl;
+
+    text-align:right;
+
+
     font-size:16px;
 
-
     line-height:1.9;
-
 
     color:#1f2937;
 
@@ -256,13 +316,24 @@ div[data-testid="stChatMessage"] p {
 
 
 
+div[data-testid="stChatMessage"] li {
+
+
+    direction:rtl;
+
+    text-align:right;
+
+    line-height:1.8;
+
+
+}
 
 
 
 
-/* ======================
-   Input Box
-====================== */
+/* ==================================================
+   INPUT
+================================================== */
 
 
 div[data-testid="stChatInput"] {
@@ -275,7 +346,6 @@ div[data-testid="stChatInput"] {
 
 
 
-
 div[data-testid="stChatInput"] textarea {
 
 
@@ -285,15 +355,19 @@ div[data-testid="stChatInput"] textarea {
     font-size:16px;
 
 
+    direction:rtl;
+
+    text-align:right;
+
+
 }
 
 
 
 
-
-/* ======================
-   Buttons
-====================== */
+/* ==================================================
+   BUTTONS
+================================================== */
 
 
 .stButton button {
@@ -308,9 +382,7 @@ div[data-testid="stChatInput"] textarea {
     border-radius:12px;
 
 
-    border:
-
-    1px solid #d1d5db;
+    border:1px solid #d1d5db;
 
 
     background:white;
@@ -344,9 +416,9 @@ div[data-testid="stChatInput"] textarea {
 
 
 
-/* ======================
-   Sources Cards
-====================== */
+/* ==================================================
+   SOURCES
+================================================== */
 
 
 div[data-testid="stExpander"] {
@@ -355,9 +427,7 @@ div[data-testid="stExpander"] {
     border-radius:16px;
 
 
-    border:
-
-    1px solid #e5e7eb;
+    border:1px solid #e5e7eb;
 
 
     background:#fafafa;
@@ -368,6 +438,11 @@ div[data-testid="stExpander"] {
 
 
 div[data-testid="stExpander"] summary {
+
+
+    direction:ltr;
+
+    text-align:left;
 
 
     font-weight:700;
@@ -382,9 +457,9 @@ div[data-testid="stExpander"] summary {
 
 
 
-/* ======================
-   Status Messages
-====================== */
+/* ==================================================
+   ALERTS / STATUS
+================================================== */
 
 
 .stAlert {
@@ -393,38 +468,24 @@ div[data-testid="stExpander"] summary {
     border-radius:14px;
 
 
-}
+    direction:rtl;
 
-
-
-
-
-
-/* ======================
-   Hide Streamlit Branding
-====================== */
-
-
-#MainMenu {
-
-
-    visibility:hidden;
+    text-align:right;
 
 
 }
 
 
 
-footer {
 
 
-    visibility:hidden;
+/* ==================================================
+   HIDE STREAMLIT
+================================================== */
 
 
-}
-
-
-
+#MainMenu,
+footer,
 header {
 
 
@@ -437,9 +498,9 @@ header {
 
 
 
-/* ======================
-   Scrollbar
-====================== */
+/* ==================================================
+   SCROLLBAR
+================================================== */
 
 
 ::-webkit-scrollbar {
@@ -477,124 +538,53 @@ header {
 
 
 
-/* ======================
-   Mobile
-====================== */
+/* ==================================================
+   MOBILE
+================================================== */
 
 
 @media(max-width:768px){
 
 
-    .main-header {
+
+.main-header {
 
 
-        padding:25px 15px;
-
-
-    }
-
-
-
-    .main-header h1 {
-
-
-        font-size:26px;
-
-
-    }
-
-
-
-    .main-header p {
-
-
-        font-size:14px;
-
-
-    }
+    padding:25px 15px;
 
 
 }
 
-/* ======================
-   RAG Answer RTL
-====================== */
 
-.rag-answer {
 
-    direction: rtl;
+.main-header h1 {
 
-    text-align: right;
 
-    line-height: 1.9;
+    font-size:26px;
 
-    font-size: 16px;
 
 }
 
 
-.rag-answer p {
 
-    direction: rtl;
+.main-header p {
 
-    text-align: right;
+
+    font-size:14px;
+
 
 }
 
 
-.rag-answer ul,
-.rag-answer ol {
 
-    direction: rtl;
+div[data-testid="stChatMessage"] {
 
-    text-align: right;
 
-    padding-right: 25px;
+    padding:14px;
+
 
 }
 
 
-.rag-answer h1,
-.rag-answer h2,
-.rag-answer h3 {
-
-    direction: rtl;
-
-    text-align: right;
 
 }
-/* Arabic Answer Alignment */
-
-div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] {
-
-    direction: rtl;
-    text-align: right;
-
-}
-
-
-div[data-testid="stChatMessage"] p {
-
-    direction: rtl;
-    text-align: right;
-
-}
-
-
-div[data-testid="stChatMessage"] li {
-
-    direction: rtl;
-    text-align: right;
-
-}
-
-
-div[data-testid="stChatMessage"] h1,
-div[data-testid="stChatMessage"] h2,
-div[data-testid="stChatMessage"] h3 {
-
-    direction: rtl;
-    text-align: right;
-
-}
-
