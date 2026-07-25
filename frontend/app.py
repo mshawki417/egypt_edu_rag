@@ -262,20 +262,29 @@ unsafe_allow_html=True
 
 for message in st.session_state.messages:
 
+    with st.chat_message(message["role"]):
 
-    with st.chat_message(
+        if message["role"] == "assistant":
 
-        message["role"]
+            st.markdown(
 
-    ):
+                f"""
+                <div class="rag-answer">
 
+                {message["content"]}
 
-        st.markdown(
+                </div>
+                """,
 
-            message["content"]
+                unsafe_allow_html=True
 
-        )
+            )
 
+        else:
+
+            st.markdown(
+                message["content"]
+            )
 
         if message.get("sources"):
 
