@@ -515,3 +515,51 @@ header {
 
 
 }
+
+/* ======================
+   RAG Answer RTL
+====================== */
+
+.rag-answer {
+
+    direction: rtl;
+
+    text-align: right;
+
+    line-height: 1.9;
+
+    font-size: 16px;
+
+}
+
+
+.rag-answer p {
+
+    direction: rtl;
+
+    text-align: right;
+
+}
+
+
+.rag-answer ul,
+.rag-answer ol {
+
+    direction: rtl;
+
+    text-align: right;
+
+    padding-right: 25px;
+
+}
+
+
+.rag-answer h1,
+.rag-answer h2,
+.rag-answer h3 {
+
+    direction: rtl;
+
+    text-align: right;
+
+}
